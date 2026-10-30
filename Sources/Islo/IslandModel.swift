@@ -71,6 +71,12 @@ final class IslandModel: ObservableObject {
             if hiddenTabs.contains(tab) { tab = .home }
         }
     }
+    /// macOS reports the menu bar height, not the camera notch itself, and the two differ with
+    /// scaled resolutions. This lets the collapsed island be lined up with the real notch.
+    static let heightAdjustments: [CGFloat] = [-8, -6, -5, -4, -3, -2, -1, 0, 2]
+    @Published var heightAdjust = UserDefaults.standard.object(forKey: "heightAdjust") as? CGFloat ?? -3 {
+        didSet { UserDefaults.standard.set(heightAdjust, forKey: "heightAdjust") }
+    }
     /// Called when the island closes, so the panel can hand keyboard focus back.
     var onCollapse: (() -> Void)?
 
@@ -122,7 +128,8 @@ final class IslandModel: ObservableObject {
         case .none: wing = 0
         }
         // Idle: exactly the notch, so it blends in. Without a notch the island disappears.
-        return CGSize(width: notchWidth + wing * 2, height: notch.height)
+        let height = notch.hasNotch ? notch.height + heightAdjust : notch.height
+        return CGSize(width: notchWidth + wing * 2, height: height)
     }
 
     func setHovering(_ hovering: Bool) {

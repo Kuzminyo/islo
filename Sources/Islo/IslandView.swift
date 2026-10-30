@@ -65,7 +65,7 @@ struct IslandView: View {
                 }
             case .eyes:
                 let wing = IslandModel.eyesWingWidth
-                let y = model.notch.screenFrame.maxY - model.notch.height / 2
+                let y = model.notch.screenFrame.maxY - size.height / 2
                 Wings(notchWidth: model.notch.width) {
                     Eye(center: CGPoint(x: model.notch.rect.minX - wing / 2, y: y))
                 } trailing: {
@@ -288,6 +288,12 @@ private struct ExpandedView: View {
                 }
                 Menu {
                     Toggle("Глазки 👀", isOn: $model.showsEyes)
+                    Picker("Высота у выреза", selection: $model.heightAdjust) {
+                        ForEach(IslandModel.heightAdjustments, id: \.self) { value in
+                            Text(value == 0 ? "Как строка меню" : value < 0 ? "Короче на \(Int(-value)) пт" : "Длиннее на \(Int(value)) пт")
+                                .tag(value)
+                        }
+                    }
                     Menu("Вкладки") {
                         ForEach(IslandTab.allCases.filter { $0 != .home }, id: \.self) { tab in
                             Toggle(tab.title, isOn: Binding(
