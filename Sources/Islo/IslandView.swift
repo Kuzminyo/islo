@@ -367,7 +367,7 @@ private struct HomeTab: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                Progress(track: track, tint: player.accent)
+                Progress(track: track, tint: player.accent) { player.seek(to: $0) }
                     .padding(.top, 3)
                 HStack(spacing: 22) {
                     control("backward.fill", size: 15) { player.previous() }
@@ -561,29 +561,52 @@ private struct ShelfItem: View {
     }
 }
 
+/// Track progress you can click or drag to seek.
 private struct Progress: View {
     let track: Track
     var tint: Color = .white
+    var onSeek: ((Double) -> Void)?
+
+    /// Where the bar is being dragged to, 0…1; nil when not dragging.
+    @State private var dragFraction: Double?
+    @State private var isHovered = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let position = track.position(at: context.date)
-            let fraction = track.duration > 0 ? position / track.duration : 0
+            let playing = track.duration > 0 ? track.position(at: context.date) / track.duration : 0
+            let fraction = min(max(dragFraction ?? playing, 0), 1)
+            let isActive = isHovered || dragFraction != nil
             HStack(spacing: 8) {
-                Text(Self.time(position))
-                Capsule()
-                    .fill(.white.opacity(0.2))
-                    .overlay(alignment: .leading) {
-                        GeometryReader { proxy in
-                            Capsule().fill(tint).frame(width: proxy.size.width * fraction)
-                        }
+                Text(Self.time(fraction * track.duration))
+                    .frame(minWidth: 28, alignment: .leading)
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.2))
+                        Capsule().fill(tint).frame(width: proxy.size.width * fraction)
                     }
-                    .frame(height: 4)
+                    .frame(height: isActive ? 7 : 4)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                dragFraction = min(max(value.location.x / proxy.size.width, 0), 1)
+                            }
+                            .onEnded { value in
+                                let target = min(max(value.location.x / proxy.size.width, 0), 1)
+                                onSeek?(target * track.duration)
+                                dragFraction = nil
+                            }
+                    )
+                }
+                .frame(height: 14)
+                .onHover { isHovered = $0 }
+                .animation(.snappy(duration: 0.15), value: isActive)
                 Text(Self.time(track.duration))
             }
             .font(.system(size: 10, weight: .medium, design: .rounded))
             .monospacedDigit()
-            .foregroundStyle(.white.opacity(0.6))
+            .foregroundStyle(.white.opacity(dragFraction == nil ? 0.6 : 0.9))
         }
     }
 

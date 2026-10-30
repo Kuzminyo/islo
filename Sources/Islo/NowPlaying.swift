@@ -72,6 +72,21 @@ final class NowPlaying: ObservableObject {
     func next() { send("next track") }
     func previous() { send("previous track") }
 
+    /// Jumps to `seconds` in the current track.
+    func seek(to seconds: Double) {
+        guard var current = track else { return }
+        let target = max(0, min(seconds, current.duration))
+        current.position = target
+        current.positionDate = Date()
+        setTrack(current)
+        // AppleScript needs a dot as the decimal separator whatever the system locale.
+        let value = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), target)
+        let name = current.player.scriptName
+        scriptQueue.async {
+            Self.run("tell application \"\(name)\" to set player position to \(value)")
+        }
+    }
+
     func openPlayer() {
         guard let player = track?.player,
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: player.rawValue) else { return }
