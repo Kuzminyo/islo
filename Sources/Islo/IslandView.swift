@@ -724,7 +724,7 @@ private struct MirrorPanel: View {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(.white.opacity(0.08))
                 if mirror.isOn {
-                    CameraPreview(session: mirror.session)
+                    CameraPreview(layer: mirror.previewLayer)
                 } else {
                     VStack(spacing: 6) {
                         Image(systemName: mirror.isDenied ? "video.slash.fill" : "camera.fill")
@@ -747,23 +747,21 @@ private struct MirrorPanel: View {
     }
 }
 
-/// Live, mirrored front camera image.
+/// Shows the mirror's camera layer, which outlives this view.
 private struct CameraPreview: NSViewRepresentable {
-    let session: AVCaptureSession
+    let layer: AVCaptureVideoPreviewLayer
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         view.wantsLayer = true
-        let layer = AVCaptureVideoPreviewLayer(session: session)
-        layer.videoGravity = .resizeAspectFill
+        layer.removeFromSuperlayer()
+        layer.frame = view.bounds
         layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        if let connection = layer.connection, connection.isVideoMirroringSupported {
-            connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = true
-        }
-        view.layer = layer
+        view.layer?.addSublayer(layer)
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        layer.frame = nsView.bounds
+    }
 }

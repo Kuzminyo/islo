@@ -73,11 +73,22 @@ final class CountdownTimer: ObservableObject {
 /// Front camera preview. Starts only when asked and stops when the island closes.
 final class Mirror: ObservableObject {
     let session = AVCaptureSession()
+    /// Created up front, while the session is idle: attaching a preview to a session that is
+    /// starting on another thread crashes AVFoundation.
+    let previewLayer: AVCaptureVideoPreviewLayer
     @Published private(set) var isOn = false
     @Published private(set) var isDenied = false
 
     private let queue = DispatchQueue(label: "com.kuzminyo.islo.camera")
     private var isConfigured = false
+    private var isStarting = false
+
+    init() {
+        previewLayer = AVCaptureVideoPreviewLayer(session: session)
+        previewLayer.videoGravity = .resizeAspectFill
+        // Show it like a mirror.
+        previewLayer.setAffineTransform(CGAffineTransform(scaleX: -1, y: 1))
+    }
 
     func toggle() {
         isOn ? stop() : start()
@@ -97,14 +108,16 @@ final class Mirror: ObservableObject {
     }
 
     func stop() {
-        guard isOn else { return }
+        guard isOn || isStarting else { return }
         isOn = false
+        isStarting = false
         queue.async { self.session.stopRunning() }
     }
 
     private func run() {
+        guard !isStarting else { return }
         isDenied = false
-        isOn = true
+        isStarting = true
         queue.async {
             if !self.isConfigured {
                 self.session.beginConfiguration()
@@ -119,6 +132,15 @@ final class Mirror: ObservableObject {
                 self.isConfigured = true
             }
             self.session.startRunning()
+            DispatchQueue.main.async {
+                // Stopped while starting: turn the camera back off.
+                guard self.isStarting else {
+                    self.queue.async { self.session.stopRunning() }
+                    return
+                }
+                self.isStarting = false
+                self.isOn = true
+            }
         }
     }
 }
