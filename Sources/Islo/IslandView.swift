@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -29,16 +30,46 @@ struct IslandView: View {
         if model.isExpanded {
             ExpandedView(model: model, player: player, shelf: shelf)
                 .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
-        } else if let event = model.event {
-            EventView(event: event, notchWidth: model.notch.width)
+        } else {
+            switch model.compact {
+            case .event(let event):
+                EventView(event: event, notchWidth: model.notch.width)
+                    .transition(.opacity)
+            case .timer:
+                Wings(notchWidth: model.notch.width) {
+                    Image(systemName: model.timer.isPaused ? "pause.fill" : "timer")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.orange)
+                } trailing: {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(clock(model.timer.remaining(at: context.date)))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.orange)
+                    }
+                }
                 .transition(.opacity)
-        } else if let track = player.track, track.isPlaying {
-            Wings(notchWidth: model.notch.width) {
-                Artwork(image: player.artwork, fallback: track.player.icon, size: 22, radius: 6)
-            } trailing: {
-                EqualizerBars()
+            case .music:
+                if let track = player.track {
+                    Wings(notchWidth: model.notch.width) {
+                        Artwork(image: player.artwork, fallback: track.player.icon, size: 22, radius: 6)
+                    } trailing: {
+                        EqualizerBars(tint: player.accent)
+                    }
+                    .transition(.opacity)
+                }
+            case .eyes:
+                let wing = IslandModel.eyesWingWidth
+                let y = model.notch.screenFrame.maxY - model.notch.height / 2
+                Wings(notchWidth: model.notch.width) {
+                    Eye(center: CGPoint(x: model.notch.rect.minX - wing / 2, y: y))
+                } trailing: {
+                    Eye(center: CGPoint(x: model.notch.rect.maxX + wing / 2, y: y))
+                }
+                .transition(.opacity)
+            case .none:
+                EmptyView()
             }
-            .transition(.opacity)
         }
     }
 }
@@ -115,6 +146,25 @@ private struct EventView: View {
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(tint)
                     .monospacedDigit()
+            case .inputSource(let code):
+                Text(code)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            case .capsLock(let isOn):
+                Text(isOn ? "Caps" : "caps")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(isOn ? .green : .white.opacity(0.6))
+            case .output(let name, _):
+                Text(name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .padding(.trailing, 8)
+            case .timerDone:
+                Text("Готово")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.orange)
             }
         }
     }
@@ -126,12 +176,23 @@ private struct EventView: View {
             return volume < 0.34 ? "speaker.wave.1.fill" : volume < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"
         case .charging(_, let isCharging):
             return isCharging ? "bolt.fill" : "battery.75percent"
+        case .inputSource:
+            return "keyboard"
+        case .capsLock(let isOn):
+            return isOn ? "capslock.fill" : "capslock"
+        case .output(_, let isHeadphones):
+            return isHeadphones ? "headphones" : "hifispeaker.fill"
+        case .timerDone:
+            return "bell.fill"
         }
     }
 
     private var tint: Color {
-        if case .charging(_, true) = event { return .green }
-        return .white
+        switch event {
+        case .charging(_, true), .capsLock(true): .green
+        case .timerDone: .orange
+        default: .white
+        }
     }
 }
 
@@ -147,6 +208,7 @@ private struct ExpandedView: View {
             Group {
                 switch model.tab {
                 case .home: HomeTab(player: player)
+                case .tools: ToolsTab(timer: model.timer, mirror: model.mirror)
                 case .shelf: ShelfTab(shelf: shelf, isDropTargeted: isDropTargeted)
                 }
             }
@@ -202,6 +264,7 @@ private struct ExpandedView: View {
                         .foregroundStyle(.white.opacity(0.5))
                 }
                 Menu {
+                    Toggle("Глазки 👀", isOn: $model.showsEyes)
                     Toggle("Запускать при входе", isOn: Binding(
                         get: { model.launchAtLogin },
                         set: { model.launchAtLogin = $0 }
@@ -266,7 +329,7 @@ private struct HomeTab: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                Progress(track: track)
+                Progress(track: track, tint: player.accent)
                     .padding(.top, 3)
                 HStack(spacing: 22) {
                     control("backward.fill", size: 15) { player.previous() }
@@ -462,6 +525,7 @@ private struct ShelfItem: View {
 
 private struct Progress: View {
     let track: Track
+    var tint: Color = .white
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -473,7 +537,7 @@ private struct Progress: View {
                     .fill(.white.opacity(0.2))
                     .overlay(alignment: .leading) {
                         GeometryReader { proxy in
-                            Capsule().fill(.white).frame(width: proxy.size.width * fraction)
+                            Capsule().fill(tint).frame(width: proxy.size.width * fraction)
                         }
                     }
                     .frame(height: 4)
@@ -516,6 +580,8 @@ private struct Artwork: View {
 
 /// Small animated bars that show music is playing.
 private struct EqualizerBars: View {
+    var tint: Color = .white
+
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 12)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
@@ -523,11 +589,181 @@ private struct EqualizerBars: View {
                 ForEach(0..<4) { index in
                     let phase = time * (5 + Double(index) * 1.3) + Double(index)
                     Capsule()
-                        .fill(.white)
+                        .fill(tint)
                         .frame(width: 3, height: 4 + 10 * abs(sin(phase)))
                 }
             }
             .frame(height: 14)
         }
     }
+}
+
+/// Formats seconds as m:ss or h:mm:ss.
+private func clock(_ seconds: TimeInterval) -> String {
+    let total = Int(seconds.rounded(.up))
+    let hours = total / 3600, minutes = total % 3600 / 60, secs = total % 60
+    return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, secs) : String(format: "%d:%02d", minutes, secs)
+}
+
+/// A googly eye that follows the pointer and blinks now and then.
+private struct Eye: View {
+    /// Eye position on screen, to aim the pupil at the pointer.
+    let center: CGPoint
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let mouse = NSEvent.mouseLocation
+            let dx = mouse.x - center.x, dy = mouse.y - center.y
+            let distance = max(hypot(dx, dy), 1)
+            let reach = 3.2 * min(distance / 60, 1)
+            // Blink for a moment every few seconds; the two eyes share the clock, so they blink together.
+            let isBlinking = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4.7) < 0.13
+            ZStack {
+                Circle().fill(.white)
+                Circle()
+                    .fill(.black)
+                    .frame(width: 6.5, height: 6.5)
+                    .offset(x: dx / distance * reach, y: -dy / distance * reach)
+            }
+            .frame(width: 15, height: 15)
+            .scaleEffect(x: 1, y: isBlinking ? 0.1 : 1)
+        }
+    }
+}
+
+/// Timer on the left, camera mirror on the right.
+private struct ToolsTab: View {
+    @ObservedObject var timer: CountdownTimer
+    let mirror: Mirror
+
+    var body: some View {
+        HStack(spacing: 18) {
+            TimerPanel(timer: timer)
+                .frame(maxWidth: .infinity)
+            Rectangle()
+                .fill(.white.opacity(0.12))
+                .frame(width: 1)
+                .padding(.vertical, 6)
+            MirrorPanel(mirror: mirror)
+                .frame(width: 170)
+        }
+    }
+}
+
+private struct TimerPanel: View {
+    @ObservedObject var timer: CountdownTimer
+
+    var body: some View {
+        if timer.isActive {
+            VStack(spacing: 10) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let remaining = timer.remaining(at: context.date)
+                    VStack(spacing: 6) {
+                        Text(clock(remaining))
+                            .font(.system(size: 38, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.orange)
+                        Capsule()
+                            .fill(.white.opacity(0.15))
+                            .overlay(alignment: .leading) {
+                                GeometryReader { proxy in
+                                    Capsule()
+                                        .fill(.orange)
+                                        .frame(width: proxy.size.width * (timer.total > 0 ? remaining / timer.total : 0))
+                                }
+                            }
+                            .frame(height: 4)
+                    }
+                }
+                HStack(spacing: 8) {
+                    pill(timer.isPaused ? "Дальше" : "Пауза", symbol: timer.isPaused ? "play.fill" : "pause.fill") { timer.togglePause() }
+                    pill("+1 мин", symbol: "plus") { timer.addMinute() }
+                    pill("Стоп", symbol: "xmark") { timer.cancel() }
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Таймер", systemImage: "timer")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                    ForEach(CountdownTimer.presets, id: \.self) { minutes in
+                        Button { timer.start(minutes: minutes) } label: {
+                            Text("\(minutes) мин")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .frame(maxWidth: .infinity, minHeight: 30)
+                                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func pill(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 10)
+                .frame(minHeight: 26)
+                .background(.white.opacity(0.12), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MirrorPanel: View {
+    @ObservedObject var mirror: Mirror
+
+    var body: some View {
+        Button { mirror.toggle() } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.white.opacity(0.08))
+                if mirror.isOn {
+                    CameraPreview(session: mirror.session)
+                } else {
+                    VStack(spacing: 6) {
+                        Image(systemName: mirror.isDenied ? "video.slash.fill" : "camera.fill")
+                            .font(.system(size: 20))
+                        Text(mirror.isDenied ? "Нет доступа к камере" : "Зеркало")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(mirror.isDenied ? "Разрешите в настройках" : "Нажмите, чтобы включить")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .foregroundStyle(.white.opacity(0.8))
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(mirror.isOn ? "Выключить камеру" : "Включить камеру")
+        .onDisappear { mirror.stop() }
+    }
+}
+
+/// Live, mirrored front camera image.
+private struct CameraPreview: NSViewRepresentable {
+    let session: AVCaptureSession
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        if let connection = layer.connection, connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = true
+        }
+        view.layer = layer
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

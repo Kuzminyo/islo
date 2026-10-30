@@ -7,12 +7,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: IslandPanel!
     private var volumeWatcher: VolumeWatcher?
     private var powerWatcher: PowerWatcher?
+    private var inputSourceWatcher: InputSourceWatcher?
+    private var capsLockWatcher: CapsLockWatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = IslandPanel(model: model)
 
         volumeWatcher = VolumeWatcher { [weak self] volume, muted in
             self?.model.show(.volume(volume, muted: muted))
+        }
+        volumeWatcher?.onDeviceChange = { [weak self] name, isHeadphones in
+            self?.model.show(.output(name: name, isHeadphones: isHeadphones))
+        }
+        inputSourceWatcher = InputSourceWatcher { [weak self] code, _ in
+            self?.model.show(.inputSource(code: code))
+        }
+        capsLockWatcher = CapsLockWatcher { [weak self] isOn in
+            self?.model.show(.capsLock(isOn))
         }
         powerWatcher = PowerWatcher { [weak self] level, isCharging in
             self?.model.show(.charging(level: level, isCharging: isCharging))

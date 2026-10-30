@@ -3,9 +3,11 @@ import CoreAudio
 import Foundation
 import IOKit.ps
 
-/// Reports changes of the output volume and mute, following the current output device.
+/// Reports changes of the output volume and mute, following the current output device,
+/// and when the output device itself changes (headphones connected, etc.).
 final class VolumeWatcher {
     private let onChange: (Float, Bool) -> Void
+    var onDeviceChange: ((_ name: String, _ isHeadphones: Bool) -> Void)?
     private var device = AudioObjectID(kAudioObjectUnknown)
     private var deviceListener: AudioObjectPropertyListenerBlock?
     private var valueListener: AudioObjectPropertyListenerBlock?
@@ -39,13 +41,32 @@ final class VolumeWatcher {
             AudioObjectRemovePropertyListenerBlock(device, &Self.volumeAddress, .main, valueListener)
             AudioObjectRemovePropertyListenerBlock(device, &Self.muteAddress, .main, valueListener)
         }
+        let previous = device
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
         AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &Self.defaultDeviceAddress, 0, nil, &size, &device)
+        if previous != kAudioObjectUnknown, previous != device { reportDevice() }
 
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.report() }
         valueListener = listener
         AudioObjectAddPropertyListenerBlock(device, &Self.volumeAddress, .main, listener)
         AudioObjectAddPropertyListenerBlock(device, &Self.muteAddress, .main, listener)
+    }
+
+    private func reportDevice() {
+        var nameAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain
+        )
+        var transportAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        AudioObjectGetPropertyData(device, &nameAddress, 0, nil, &size, &name)
+        var transport = UInt32(0)
+        size = UInt32(MemoryLayout<UInt32>.size)
+        AudioObjectGetPropertyData(device, &transportAddress, 0, nil, &size, &transport)
+        let isHeadphones = transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
+        onDeviceChange?((name?.takeRetainedValue() as String?) ?? "Звук", isHeadphones)
     }
 
     private func report() {

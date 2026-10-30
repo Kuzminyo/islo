@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 enum Player: String, CaseIterable {
     case spotify = "com.spotify.client"
@@ -40,6 +41,8 @@ struct Track: Equatable {
 final class NowPlaying: ObservableObject {
     @Published private(set) var track: Track?
     @Published private(set) var artwork: NSImage?
+    /// Color taken from the artwork, used to tint the equalizer and progress bar.
+    @Published private(set) var accent: Color = .white
 
     private let scriptQueue = DispatchQueue(label: "com.kuzminyo.islo.applescript")
     private var artworkURL: URL?
@@ -145,11 +148,14 @@ final class NowPlaying: ObservableObject {
         guard url != artworkURL else { return }
         artworkURL = url
         artwork = nil
+        accent = .white
         guard let url else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = NSImage(data: data) else { return }
             DispatchQueue.main.async {
-                if self?.artworkURL == url { self?.artwork = image }
+                guard let self, self.artworkURL == url else { return }
+                self.artwork = image
+                self.accent = Color(nsColor: image.vividAverageColor ?? .white)
             }
         }.resume()
     }

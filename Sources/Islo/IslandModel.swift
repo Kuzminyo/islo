@@ -4,23 +4,50 @@ import ServiceManagement
 import SwiftUI
 
 enum IslandTab: String, CaseIterable {
-    case home, shelf
+    case home, tools, shelf
 
-    var title: String { self == .home ? "Главная" : "Полка" }
-    var symbol: String { self == .home ? "house.fill" : "tray.full.fill" }
+    var title: String {
+        switch self {
+        case .home: "Главная"
+        case .tools: "Таймер и зеркало"
+        case .shelf: "Полка"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .home: "house.fill"
+        case .tools: "timer"
+        case .shelf: "tray.full.fill"
+        }
+    }
 }
 
 /// A short-lived event shown beside the notch.
 enum IslandEvent: Equatable {
     case volume(Float, muted: Bool)
     case charging(level: Int, isCharging: Bool)
+    case inputSource(code: String)
+    case capsLock(Bool)
+    case output(name: String, isHeadphones: Bool)
+    case timerDone
+
+    /// How far the island grows to each side of the notch for this event.
+    var wingWidth: CGFloat {
+        switch self {
+        case .output: 150
+        case .inputSource, .capsLock: 64
+        default: 86
+        }
+    }
 }
 
 final class IslandModel: ObservableObject {
     static let expandedSize = CGSize(width: 620, height: 150)
     /// How far the island grows to each side of the notch when it shows something.
-    static let wingWidth: CGFloat = 44
-    static let eventWingWidth: CGFloat = 86
+    static let musicWingWidth: CGFloat = 44
+    static let timerWingWidth: CGFloat = 64
+    static let eyesWingWidth: CGFloat = 30
 
     @Published var notch = NotchGeometry.current()
     @Published private(set) var isExpanded = false
@@ -28,18 +55,38 @@ final class IslandModel: ObservableObject {
     @Published var tab: IslandTab = .home
     /// Files are being dragged somewhere on screen; the island opens its shelf when they come near.
     @Published var isDraggingFiles = false
+    @Published var showsEyes = UserDefaults.standard.object(forKey: "showsEyes") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showsEyes, forKey: "showsEyes") }
+    }
 
     let player: NowPlaying
     let shelf: Shelf
+    let timer = CountdownTimer()
+    let mirror = Mirror()
     private var collapseWork: DispatchWorkItem?
     private var eventWork: DispatchWorkItem?
-    private var playerObserver: AnyCancellable?
+    private var observers: Set<AnyCancellable> = []
 
     init(player: NowPlaying, shelf: Shelf) {
         self.player = player
         self.shelf = shelf
-        // Re-publish so the island resizes when music starts or stops.
-        playerObserver = player.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        // Re-publish so the island resizes when music or the timer starts or stops.
+        player.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &observers)
+        timer.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &observers)
+        timer.onFinish = { [weak self] in self?.show(.timerDone) }
+    }
+
+    /// What the collapsed island shows, in order of importance.
+    enum Compact: Equatable {
+        case event(IslandEvent), timer, music, eyes, none
+    }
+
+    var compact: Compact {
+        if let event { return .event(event) }
+        if timer.isActive { return .timer }
+        if player.track?.isPlaying == true { return .music }
+        if showsEyes { return .eyes }
+        return .none
     }
 
     /// Size of the black shape for the current state.
@@ -48,14 +95,16 @@ final class IslandModel: ObservableObject {
         if isExpanded {
             return CGSize(width: max(Self.expandedSize.width, notchWidth + 120), height: notch.height + Self.expandedSize.height)
         }
-        if event != nil {
-            return CGSize(width: notchWidth + Self.eventWingWidth * 2, height: notch.height)
-        }
-        if player.track?.isPlaying == true {
-            return CGSize(width: notchWidth + Self.wingWidth * 2, height: notch.height)
+        let wing: CGFloat
+        switch compact {
+        case .event(let event): wing = event.wingWidth
+        case .timer: wing = Self.timerWingWidth
+        case .music: wing = Self.musicWingWidth
+        case .eyes: wing = Self.eyesWingWidth
+        case .none: wing = 0
         }
         // Idle: exactly the notch, so it blends in. Without a notch the island disappears.
-        return CGSize(width: notchWidth, height: notch.height)
+        return CGSize(width: notchWidth + wing * 2, height: notch.height)
     }
 
     func setHovering(_ hovering: Bool) {
@@ -75,19 +124,21 @@ final class IslandModel: ObservableObject {
                     return
                 }
                 self.isExpanded = false
+                self.mirror.stop()
             }
             collapseWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
         }
     }
 
+    /// Shows an event beside the notch for a moment.
     func show(_ newEvent: IslandEvent) {
         guard !isExpanded else { return }
         event = newEvent
         eventWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.event = nil }
         eventWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (newEvent == .timerDone ? 4 : 1.8), execute: work)
     }
 
     var launchAtLogin: Bool {
