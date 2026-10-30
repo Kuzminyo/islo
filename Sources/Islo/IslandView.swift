@@ -606,21 +606,37 @@ private struct Artwork: View {
 }
 
 /// Small animated bars that show music is playing.
+/// Bars that rise and fall like a music visualizer, redrawn every display frame.
+/// Each bar mixes a few slow waves with its own speeds, so the motion looks organic
+/// instead of a bouncing sine.
 private struct EqualizerBars: View {
     var tint: Color = .white
 
+    private static let bars: [(speeds: (Double, Double, Double), offset: Double)] = [
+        ((1.9, 3.1, 0.7), 0.0),
+        ((2.6, 1.7, 1.1), 1.3),
+        ((3.3, 2.2, 0.5), 2.1),
+        ((2.1, 3.7, 0.9), 0.6),
+        ((2.8, 1.4, 1.3), 1.8),
+    ]
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 12)) { context in
+        TimelineView(.animation) { context in
             let time = context.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .center, spacing: 2) {
-                ForEach(0..<4) { index in
-                    let phase = time * (5 + Double(index) * 1.3) + Double(index)
+            HStack(alignment: .center, spacing: 2.5) {
+                ForEach(Self.bars.indices, id: \.self) { index in
+                    let bar = Self.bars[index]
+                    let wave = sin(time * bar.speeds.0 + bar.offset) * 0.5
+                        + sin(time * bar.speeds.1 + bar.offset * 2) * 0.3
+                        + sin(time * bar.speeds.2 + bar.offset * 3) * 0.2
+                    // -1…1 → 0…1, eased so bars linger near the top and bottom like real levels.
+                    let level = (1 - cos((wave + 1) / 2 * .pi)) / 2
                     Capsule()
-                        .fill(tint)
-                        .frame(width: 3, height: 4 + 10 * abs(sin(phase)))
+                        .fill(tint.gradient)
+                        .frame(width: 2.5, height: 3 + 12 * level)
                 }
             }
-            .frame(height: 14)
+            .frame(height: 15)
         }
     }
 }
