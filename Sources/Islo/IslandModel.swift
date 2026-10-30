@@ -3,6 +3,13 @@ import Combine
 import ServiceManagement
 import SwiftUI
 
+enum IslandTab: String, CaseIterable {
+    case home, shelf
+
+    var title: String { self == .home ? "Главная" : "Полка" }
+    var symbol: String { self == .home ? "house.fill" : "tray.full.fill" }
+}
+
 /// A short-lived event shown beside the notch.
 enum IslandEvent: Equatable {
     case volume(Float, muted: Bool)
@@ -10,7 +17,7 @@ enum IslandEvent: Equatable {
 }
 
 final class IslandModel: ObservableObject {
-    static let expandedSize = CGSize(width: 420, height: 150)
+    static let expandedSize = CGSize(width: 620, height: 150)
     /// How far the island grows to each side of the notch when it shows something.
     static let wingWidth: CGFloat = 44
     static let eventWingWidth: CGFloat = 86
@@ -18,14 +25,19 @@ final class IslandModel: ObservableObject {
     @Published var notch = NotchGeometry.current()
     @Published private(set) var isExpanded = false
     @Published private(set) var event: IslandEvent?
+    @Published var tab: IslandTab = .home
+    /// Files are being dragged somewhere on screen; the island opens its shelf when they come near.
+    @Published var isDraggingFiles = false
 
     let player: NowPlaying
+    let shelf: Shelf
     private var collapseWork: DispatchWorkItem?
     private var eventWork: DispatchWorkItem?
     private var playerObserver: AnyCancellable?
 
-    init(player: NowPlaying) {
+    init(player: NowPlaying, shelf: Shelf) {
         self.player = player
+        self.shelf = shelf
         // Re-publish so the island resizes when music starts or stops.
         playerObserver = player.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
     }
@@ -55,8 +67,14 @@ final class IslandModel: ObservableObject {
             event = nil
         } else if isExpanded, collapseWork == nil {
             let work = DispatchWorkItem { [weak self] in
-                self?.isExpanded = false
-                self?.collapseWork = nil
+                guard let self else { return }
+                self.collapseWork = nil
+                // Keep the island open while a file is dragged out of the shelf.
+                if NSEvent.pressedMouseButtons != 0 {
+                    self.setHovering(false)
+                    return
+                }
+                self.isExpanded = false
             }
             collapseWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
