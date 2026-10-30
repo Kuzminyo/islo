@@ -20,7 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.model.show(.output(name: name, isHeadphones: isHeadphones))
         }
         inputSourceWatcher = InputSourceWatcher { [weak self] code, _ in
-            self?.model.show(.inputSource(code: code))
+            // Outside full screen the menu bar already shows the layout.
+            guard let self, isFrontAppFullScreen(on: model.notch.screenFrame) else { return }
+            model.show(.inputSource(code: code))
         }
         capsLockWatcher = CapsLockWatcher { [weak self] isOn in
             self?.model.show(.capsLock(isOn))

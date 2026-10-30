@@ -172,6 +172,20 @@ final class InputSourceWatcher {
     }
 }
 
+/// Whether the app in front covers the whole screen (full-screen mode or a borderless game),
+/// i.e. the menu bar with its own language indicator is hidden.
+func isFrontAppFullScreen(on screenFrame: NSRect) -> Bool {
+    guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+          let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+              as? [[String: Any]] else { return false }
+    return windows.contains { window in
+        guard window[kCGWindowOwnerPID as String] as? pid_t == pid,
+              window[kCGWindowLayer as String] as? Int == 0,
+              let bounds = window[kCGWindowBounds as String] as? [String: CGFloat] else { return false }
+        return bounds["Width"] ?? 0 >= screenFrame.width && bounds["Height"] ?? 0 >= screenFrame.height
+    }
+}
+
 /// Polls Caps Lock; reading the modifier state needs no special permission.
 final class CapsLockWatcher {
     private var isOn = CGEventSource.flagsState(.combinedSessionState).contains(.maskAlphaShift)
