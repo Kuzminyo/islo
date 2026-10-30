@@ -107,15 +107,17 @@ enum ChromeMedia {
         """
     }
 
+    /// Runs `body` with `w` and `t` set to the tab's window and tab, and `i` to its index.
+    /// Chrome's ids are text, so they are compared as text.
     private static func inTab(_ tab: ChromeTab, _ body: String) -> String {
         """
         tell application "Google Chrome"
             repeat with w in windows
-                if (id of w) is \(tab.windowID) then
+                if (id of w as text) is "\(tab.windowID)" then
                     set i to 0
                     repeat with t in tabs of w
                         set i to i + 1
-                        if (id of t) is \(tab.tabID) then
+                        if (id of t as text) is "\(tab.tabID)" then
                             \(body)
                         end if
                     end repeat
