@@ -11,17 +11,22 @@ struct IslandView: View {
     private var ear: CGFloat { model.isExpanded ? 12 : 6 }
     private var radius: CGFloat { model.isExpanded ? 30 : min(size.height * 0.35, 12) }
 
+    /// Nothing to show: draw nothing, so only the real notch is visible. A black shape the size
+    /// of the notch never lines up exactly with the hardware and leaves a thin outline around it.
+    private var isHidden: Bool { !model.isExpanded && model.compact == .none }
+
     var body: some View {
         let shape = IslandShape(radius: radius, ear: ear)
         content
             .frame(width: size.width, height: size.height, alignment: .top)
             .padding(.horizontal, ear)
-            .background(.black)
+            .background(.black.opacity(isHidden ? 0 : 1))
             .clipShape(shape)
             .contentShape(shape)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(.spring(response: 0.42, dampingFraction: 0.82), value: size)
             .animation(.easeOut(duration: 0.2), value: model.event == nil)
+            .animation(.easeOut(duration: 0.15), value: isHidden)
             .environment(\.colorScheme, .dark)
     }
 
