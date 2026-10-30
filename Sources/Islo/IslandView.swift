@@ -21,7 +21,7 @@ struct IslandView: View {
             .contentShape(shape)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(.spring(response: 0.42, dampingFraction: 0.82), value: size)
-            .animation(.easeOut(duration: 0.2), value: model.event)
+            .animation(.easeOut(duration: 0.2), value: model.event == nil)
             .environment(\.colorScheme, .dark)
     }
 
@@ -131,16 +131,26 @@ private struct EventView: View {
         } trailing: {
             switch event {
             case .volume(let volume, let muted):
-                Capsule()
-                    .fill(.white.opacity(0.2))
-                    .overlay(alignment: .leading) {
-                        GeometryReader { proxy in
-                            Capsule()
-                                .fill(.white)
-                                .frame(width: proxy.size.width * CGFloat(muted ? 0 : volume))
+                let level = CGFloat(muted ? 0 : volume)
+                HStack(spacing: 6) {
+                    Capsule()
+                        .fill(.white.opacity(0.2))
+                        .overlay(alignment: .leading) {
+                            GeometryReader { proxy in
+                                Capsule()
+                                    .fill(.white)
+                                    .frame(width: proxy.size.width * level)
+                            }
                         }
-                    }
-                    .frame(width: 56, height: 5)
+                        .frame(width: 46, height: 5)
+                    Text("\(Int((level * 100).rounded()))")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText(value: Double(level)))
+                        .frame(width: 22, alignment: .trailing)
+                }
+                // Glide between volume steps instead of jumping.
+                .animation(.spring(response: 0.28, dampingFraction: 0.9), value: level)
             case .charging(let level, _):
                 Text("\(level)%")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -165,6 +175,9 @@ private struct EventView: View {
                 Text("Готово")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.orange)
+            case .colorCopied(let hex):
+                Text(hex)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
             }
         }
     }
@@ -184,6 +197,8 @@ private struct EventView: View {
             return isHeadphones ? "headphones" : "hifispeaker.fill"
         case .timerDone:
             return "bell.fill"
+        case .colorCopied:
+            return "circle.fill"
         }
     }
 
@@ -191,6 +206,7 @@ private struct EventView: View {
         switch event {
         case .charging(_, true), .capsLock(true): .green
         case .timerDone: .orange
+        case .colorCopied(let hex): Color(hex: hex)
         default: .white
         }
     }
@@ -208,7 +224,9 @@ private struct ExpandedView: View {
             Group {
                 switch model.tab {
                 case .home: HomeTab(player: player)
+                case .tasks: TasksTab(tasks: model.tasks)
                 case .tools: ToolsTab(timer: model.timer, mirror: model.mirror)
+                case .actions: ActionsTab(actions: model.actions)
                 case .shelf: ShelfTab(shelf: shelf, isDropTargeted: isDropTargeted)
                 }
             }
@@ -237,7 +255,7 @@ private struct ExpandedView: View {
     private var topBar: some View {
         HStack(spacing: 0) {
             HStack(spacing: 4) {
-                ForEach(IslandTab.allCases, id: \.self) { tab in
+                ForEach(model.visibleTabs, id: \.self) { tab in
                     Button { model.tab = tab } label: {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 12, weight: .semibold))
@@ -265,6 +283,15 @@ private struct ExpandedView: View {
                 }
                 Menu {
                     Toggle("Глазки 👀", isOn: $model.showsEyes)
+                    Menu("Вкладки") {
+                        ForEach(IslandTab.allCases.filter { $0 != .home }, id: \.self) { tab in
+                            Toggle(tab.title, isOn: Binding(
+                                get: { !model.hiddenTabs.contains(tab) },
+                                set: { model.setTab(tab, visible: $0) }
+                            ))
+                        }
+                    }
+                    Divider()
                     Toggle("Запускать при входе", isOn: Binding(
                         get: { model.launchAtLogin },
                         set: { model.launchAtLogin = $0 }
@@ -763,5 +790,164 @@ private struct CameraPreview: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         layer.frame = nsView.bounds
+    }
+}
+
+extension Color {
+    /// "#RRGGBB" → Color.
+    init(hex: String) {
+        let value = UInt32(hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16) ?? 0xFFFFFF
+        self.init(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+}
+
+/// To-do list: type and press Return to add, click the circle to tick, × to remove.
+private struct TasksTab: View {
+    @ObservedObject var tasks: TaskList
+    @State private var draft = ""
+    @FocusState private var isTyping: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.5))
+                    TextField("Новая задача", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .focused($isTyping)
+                        .onSubmit {
+                            tasks.add(draft)
+                            draft = ""
+                            isTyping = true
+                        }
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                if !tasks.items.isEmpty {
+                    let done = tasks.doneCount
+                    Text("Выполнено \(done) из \(tasks.items.count)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                    if done > 0 {
+                        Button("Убрать выполненные") { withAnimation { tasks.removeDone() } }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+            }
+            .frame(width: 200)
+
+            if tasks.items.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "checklist")
+                        .font(.system(size: 22))
+                    Text("Задач нет")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Напишите задачу слева и нажмите ↩")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(tasks.items) { item in
+                            TaskRow(item: item, tasks: tasks)
+                        }
+                    }
+                }
+                .scrollIndicators(.never)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private struct TaskRow: View {
+    let item: TaskItem
+    let tasks: TaskList
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button { withAnimation(.snappy) { tasks.toggle(item) } } label: {
+                Image(systemName: item.isDone ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(item.isDone ? Color.green : .white.opacity(0.5))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
+
+            Text(item.title)
+                .font(.system(size: 13))
+                .strikethrough(item.isDone, color: .white.opacity(0.5))
+                .foregroundStyle(item.isDone ? .white.opacity(0.4) : .white)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isHovered {
+                Button { withAnimation(.snappy) { tasks.remove(item) } } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .frame(width: 20, height: 20)
+                        .background(.white.opacity(0.1), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Удалить")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(.white.opacity(isHovered ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// Grid of one-click system actions.
+private struct ActionsTab: View {
+    @ObservedObject var actions: QuickActions
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+            tile("Не спать", symbol: "cup.and.saucer.fill", isOn: actions.isKeepingAwake) { actions.toggleKeepAwake() }
+            tile(actions.isDarkMode ? "Светлая тема" : "Тёмная тема",
+                 symbol: actions.isDarkMode ? "sun.max.fill" : "moon.fill", isOn: false) { actions.toggleDarkMode() }
+            tile("Пипетка", symbol: "eyedropper.halffull", isOn: false) { actions.pickColor() }
+            tile("Скриншот", symbol: "camera.viewfinder", isOn: false) { actions.screenshot() }
+            tile("Погасить экран", symbol: "display", isOn: false) { actions.sleepDisplay() }
+            tile("Скрыть окна", symbol: "macwindow.on.rectangle", isOn: false) { actions.hideAllApps() }
+        }
+    }
+
+    private func tile(_ title: String, symbol: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .background(isOn ? Color.orange : .white.opacity(0.12), in: Circle())
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 46)
+            .background(.white.opacity(isOn ? 0.16 : 0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

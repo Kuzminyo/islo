@@ -35,9 +35,12 @@ final class IslandPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         ignoresMouseEvents = true
+        // Take keyboard focus only for text fields (adding a task), never just for hovering.
+        becomesKeyOnlyIfNeeded = true
 
         contentView = ClickThroughHostingView(rootView: IslandView(model: model, player: model.player, shelf: model.shelf))
         reposition()
+        model.onCollapse = { [weak self] in self?.giveBackKeyboard() }
 
         let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp]
         let track: (NSEvent) -> Void = { [weak self] event in self?.handle(event) }
@@ -52,7 +55,14 @@ final class IslandPanel: NSPanel {
         }
     }
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { model.isExpanded }
+
+    /// Re-ordering the window drops its key status, so typing goes back to the app underneath.
+    private func giveBackKeyboard() {
+        guard isKeyWindow else { return }
+        orderOut(nil)
+        orderFrontRegardless()
+    }
 
     func reposition() {
         model.notch = NotchGeometry.current()
@@ -89,7 +99,7 @@ final class IslandPanel: NSPanel {
         let hotZone = island.insetBy(dx: -slack, dy: model.isExpanded ? -6 : -slack / 2)
         let inside = hotZone.contains(mouse)
         if ignoresMouseEvents == inside { ignoresMouseEvents = !inside }
-        if inside && model.isDraggingFiles && !model.isExpanded { model.tab = .shelf }
+        if inside && model.isDraggingFiles && !model.isExpanded && !model.hiddenTabs.contains(.shelf) { model.tab = .shelf }
         model.setHovering(inside)
     }
 }
