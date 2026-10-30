@@ -73,8 +73,8 @@ final class IslandModel: ObservableObject {
     }
     /// macOS reports the menu bar height, not the camera notch itself, and the two differ with
     /// scaled resolutions. This lets the collapsed island be lined up with the real notch.
-    static let heightAdjustments: [CGFloat] = [-8, -6, -5, -4, -3, -2, -1, 0, 2]
-    @Published var heightAdjust = UserDefaults.standard.object(forKey: "heightAdjust") as? CGFloat ?? -3 {
+    static let heightAdjustments: [CGFloat] = [-4, -2, -1, 0, 1, 2, 3, 4, 6]
+    @Published var heightAdjust = UserDefaults.standard.object(forKey: "heightAdjust") as? CGFloat ?? 0 {
         didSet { UserDefaults.standard.set(heightAdjust, forKey: "heightAdjust") }
     }
     /// Called when the island closes, so the panel can hand keyboard focus back.

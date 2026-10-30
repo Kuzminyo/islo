@@ -290,7 +290,7 @@ private struct ExpandedView: View {
                     Toggle("Глазки 👀", isOn: $model.showsEyes)
                     Picker("Высота у выреза", selection: $model.heightAdjust) {
                         ForEach(IslandModel.heightAdjustments, id: \.self) { value in
-                            Text(value == 0 ? "Как строка меню" : value < 0 ? "Короче на \(Int(-value)) пт" : "Длиннее на \(Int(value)) пт")
+                            Text(value == 0 ? "Как вырез (по macOS)" : value < 0 ? "Короче на \(Int(-value)) пт" : "Длиннее на \(Int(value)) пт")
                                 .tag(value)
                         }
                     }
