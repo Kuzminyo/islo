@@ -4,12 +4,24 @@ import SwiftUI
 enum Player: String, CaseIterable {
     case spotify = "com.spotify.client"
     case music = "com.apple.Music"
+    case chrome = "com.google.Chrome"
 
-    var scriptName: String { self == .spotify ? "Spotify" : "Music" }
+    var scriptName: String {
+        switch self {
+        case .spotify: "Spotify"
+        case .music: "Music"
+        case .chrome: "Google Chrome"
+        }
+    }
 
-    /// Posted by the player whenever the track or play state changes.
-    var notification: Notification.Name {
-        Notification.Name(self == .spotify ? "com.spotify.client.PlaybackStateChanged" : "com.apple.Music.playerInfo")
+    /// Posted by the player whenever the track or play state changes. Chrome posts nothing
+    /// and is polled instead.
+    var notification: Notification.Name? {
+        switch self {
+        case .spotify: Notification.Name("com.spotify.client.PlaybackStateChanged")
+        case .music: Notification.Name("com.apple.Music.playerInfo")
+        case .chrome: nil
+        }
     }
 
     var isRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: rawValue).isEmpty }
@@ -28,6 +40,8 @@ struct Track: Equatable {
     var positionDate: Date
     var isPlaying: Bool
     var artworkURL: URL?
+    /// Set for music playing in a Chrome tab.
+    var chromeTab: ChromeTab? = nil
 
     /// Current position, counting time since the player last reported it.
     func position(at date: Date) -> Double {
@@ -36,21 +50,27 @@ struct Track: Equatable {
     }
 }
 
-/// What Spotify or Music is playing. Listens to the players' own notifications and asks them
-/// for details over AppleScript (macOS asks once for permission to control each player).
+/// What Spotify, Music or a music site in Chrome is playing. Listens to the players' own
+/// notifications, polls Chrome, and asks for details over AppleScript (macOS asks once for
+/// permission to control each player).
 final class NowPlaying: ObservableObject {
     @Published private(set) var track: Track?
     @Published private(set) var artwork: NSImage?
     /// Color taken from the artwork, used to tint the equalizer and progress bar.
     @Published private(set) var accent: Color = .white
+    /// Chrome is open but won't run scripts from Islo; the island shows how to allow it.
+    @Published private(set) var chromeNeedsJavaScript = false
 
     private let scriptQueue = DispatchQueue(label: "com.kuzminyo.islo.applescript")
     private var artworkURL: URL?
+    private var chromeTimer: Timer?
+    private var isPollingChrome = false
 
     init() {
         for player in Player.allCases {
+            guard let notification = player.notification else { continue }
             DistributedNotificationCenter.default().addObserver(
-                forName: player.notification, object: nil, queue: .main
+                forName: notification, object: nil, queue: .main
             ) { [weak self] note in
                 self?.handle(note, from: player)
             }
@@ -61,9 +81,12 @@ final class NowPlaying: ObservableObject {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             if app?.bundleIdentifier == self?.track?.player.rawValue { self?.setTrack(nil) }
         }
-        for player in Player.allCases where player.isRunning {
+        for player in Player.allCases where player.isRunning && player != .chrome {
             refresh(player)
         }
+        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in self?.pollChrome() }
+        RunLoop.main.add(timer, forMode: .common)
+        chromeTimer = timer
     }
 
     // MARK: - Controls
@@ -79,6 +102,10 @@ final class NowPlaying: ObservableObject {
         current.position = target
         current.positionDate = Date()
         setTrack(current)
+        if let tab = current.chromeTab {
+            scriptQueue.async { ChromeMedia.control("seek", value: target, in: tab) }
+            return
+        }
         // AppleScript needs a dot as the decimal separator whatever the system locale.
         let value = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), target)
         let name = current.player.scriptName
@@ -88,6 +115,10 @@ final class NowPlaying: ObservableObject {
     }
 
     func openPlayer() {
+        if let tab = track?.chromeTab {
+            scriptQueue.async { ChromeMedia.reveal(tab) }
+            return
+        }
         guard let player = track?.player,
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: player.rawValue) else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
@@ -102,8 +133,52 @@ final class NowPlaying: ObservableObject {
             current.isPlaying.toggle()
             setTrack(current)
         }
+        if let tab = track?.chromeTab {
+            let action = command == "playpause" ? "play" : command == "next track" ? "next" : "prev"
+            scriptQueue.async { ChromeMedia.control(action, in: tab) }
+            // Pick up the new track or state quickly.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.pollChrome() }
+            return
+        }
         scriptQueue.async {
             Self.run("tell application \"\(player.scriptName)\" to \(command)")
+        }
+    }
+
+    // MARK: - Chrome
+
+    private func pollChrome() {
+        guard !isPollingChrome else { return }
+        guard Player.chrome.isRunning else {
+            if track?.player == .chrome { setTrack(nil) }
+            return
+        }
+        isPollingChrome = true
+        scriptQueue.async { [weak self] in
+            let result = ChromeMedia.poll()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isPollingChrome = false
+                switch result {
+                case .failure(let failure):
+                    let needsJS = failure == .javaScriptDisabled
+                    if self.chromeNeedsJavaScript != needsJS { self.chromeNeedsJavaScript = needsJS }
+                case .success(let media):
+                    if self.chromeNeedsJavaScript { self.chromeNeedsJavaScript = false }
+                    guard let media else {
+                        if self.track?.player == .chrome { self.setTrack(nil) }
+                        return
+                    }
+                    let track = Track(
+                        player: .chrome, title: media.title, artist: media.artist,
+                        duration: media.duration, position: media.position, positionDate: Date(),
+                        isPlaying: media.isPlaying, artworkURL: media.artworkURL, chromeTab: media.tab
+                    )
+                    // Don't let a paused tab replace another player that is playing.
+                    if let current = self.track, current.player != .chrome, current.isPlaying, !track.isPlaying { return }
+                    self.setTrack(track)
+                }
+            }
         }
     }
 
@@ -139,7 +214,7 @@ final class NowPlaying: ObservableObject {
 
     /// Asks the player for the full state, including position and artwork.
     private func refresh(_ player: Player) {
-        guard player.isRunning else { return }
+        guard player.isRunning, player != .chrome else { return }
         let script = player == .spotify ? Self.spotifyScript : Self.musicScript
         scriptQueue.async { [weak self] in
             guard let output = Self.run(script) else { return }
@@ -149,6 +224,8 @@ final class NowPlaying: ObservableObject {
                 if let track {
                     // Don't let a paused player replace the one that is playing.
                     if let current = self.track, current.player != player, current.isPlaying, !track.isPlaying { return }
+                    // A Chrome tab that is playing keeps the island over a paused app.
+                    if let current = self.track, current.player == .chrome, current.isPlaying, !track.isPlaying { return }
                     self.setTrack(track)
                 } else if self.track?.player == player {
                     self.setTrack(nil)

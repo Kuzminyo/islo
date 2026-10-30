@@ -393,9 +393,16 @@ private struct HomeTab: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ничего не играет")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Включите музыку в Spotify или Музыке")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.5))
+                if player.chromeNeedsJavaScript {
+                    Text("Чтобы видеть музыку из Chrome, включите в нём: Вид → Разработчик → «Разрешить JavaScript из Apple Events»")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Включите музыку в Spotify, Музыке или на сайте в Chrome")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
             }
         }
     }
