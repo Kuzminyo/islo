@@ -306,7 +306,7 @@ private struct ExpandedView: View {
                 } label: {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.white)
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
@@ -377,7 +377,7 @@ private struct HomeTab: View {
     private var nothingPlaying: some View {
         HStack(spacing: 14) {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.white.opacity(0.08))
+                .fill(.white.opacity(0.05))
                 .frame(width: 78, height: 78)
                 .overlay {
                     Image(systemName: "music.note")
@@ -507,7 +507,7 @@ private struct ShelfTab: View {
             Label(title, systemImage: symbol)
                 .font(.system(size: 11, weight: .medium))
                 .frame(maxWidth: .infinity, minHeight: 30)
-                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -605,7 +605,7 @@ private struct Artwork: View {
             }
         }
         .frame(width: size, height: size)
-        .background(.white.opacity(0.08))
+        .background(.white.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
@@ -740,7 +740,7 @@ private struct TimerPanel: View {
                             Text("\(minutes) мин")
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 .frame(maxWidth: .infinity, minHeight: 30)
-                                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -756,7 +756,7 @@ private struct TimerPanel: View {
                 .font(.system(size: 11, weight: .semibold))
                 .padding(.horizontal, 10)
                 .frame(minHeight: 26)
-                .background(.white.opacity(0.12), in: Capsule())
+                .background(.white.opacity(0.08), in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -770,7 +770,7 @@ private struct MirrorPanel: View {
         Button { mirror.toggle() } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.white.opacity(0.08))
+                    .fill(.white.opacity(0.05))
                 if mirror.isOn {
                     CameraPreview(layer: mirror.previewLayer)
                 } else {
@@ -851,7 +851,7 @@ private struct TasksTab: View {
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 32)
-                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 if !tasks.items.isEmpty {
                     let done = tasks.doneCount
@@ -958,7 +958,7 @@ private struct ActionsTab: View {
                 Image(systemName: symbol)
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 30, height: 30)
-                    .background(isOn ? Color.orange : .white.opacity(0.12), in: Circle())
+                    .background(isOn ? Color.orange : .white.opacity(0.08), in: Circle())
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
@@ -966,7 +966,7 @@ private struct ActionsTab: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 46)
-            .background(.white.opacity(isOn ? 0.16 : 0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.white.opacity(isOn ? 0.12 : 0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
