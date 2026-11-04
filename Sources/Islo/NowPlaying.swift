@@ -42,6 +42,8 @@ struct Track: Equatable {
     var artworkURL: URL?
     /// Set for music playing in a Chrome tab.
     var chromeTab: ChromeTab? = nil
+    /// For Chrome: the tab is the selected one in the front window.
+    var isActiveTab = false
 
     /// Current position, counting time since the player last reported it.
     func position(at date: Date) -> Double {
@@ -87,6 +89,15 @@ final class NowPlaying: ObservableObject {
         let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in self?.pollChrome() }
         RunLoop.main.add(timer, forMode: .common)
         chromeTimer = timer
+    }
+
+    /// You're looking at the music already: its app is in front (and for Chrome, its tab is the
+    /// selected one), so the island doesn't need to show it.
+    var isSourceInFront: Bool {
+        guard let track, NSWorkspace.shared.frontmostApplication?.bundleIdentifier == track.player.rawValue else {
+            return false
+        }
+        return track.player != .chrome || track.isActiveTab
     }
 
     // MARK: - Controls
@@ -172,7 +183,8 @@ final class NowPlaying: ObservableObject {
                     let track = Track(
                         player: .chrome, title: media.title, artist: media.artist,
                         duration: media.duration, position: media.position, positionDate: Date(),
-                        isPlaying: media.isPlaying, artworkURL: media.artworkURL, chromeTab: media.tab
+                        isPlaying: media.isPlaying, artworkURL: media.artworkURL, chromeTab: media.tab,
+                        isActiveTab: media.isActiveTab
                     )
                     // Don't let a paused tab replace another player that is playing.
                     if let current = self.track, current.player != .chrome, current.isPlaying, !track.isPlaying { return }

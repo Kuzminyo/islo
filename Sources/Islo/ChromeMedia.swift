@@ -28,6 +28,8 @@ enum ChromeMedia {
         let duration: Double
         let position: Double
         let isPlaying: Bool
+        /// The tab is the selected one in Chrome's front window.
+        var isActiveTab = false
     }
 
     enum Failure: Error {
@@ -102,6 +104,10 @@ enum ChromeMedia {
                 end repeat
             end repeat
             if out is "" and refused is not "" then return "REFUSED||" & refused
+            -- The selected tab of the front window, so Islo knows when you're looking at the music.
+            try
+                set out to out & "ACTIVE||" & (id of active tab of front window) & linefeed
+            end try
             return out
         end tell
         """
@@ -137,8 +143,12 @@ enum ChromeMedia {
         if let output, output.hasPrefix("REFUSED||") {
             return .failure(.javaScriptDisabled)
         }
-        let results = (output ?? "").split(separator: "\n").compactMap { parse(String($0)) }
-        return .success(results.first(where: \.isPlaying) ?? results.first)
+        let lines = (output ?? "").split(separator: "\n").map(String.init)
+        let activeTab = lines.first { $0.hasPrefix("ACTIVE||") }.flatMap { Int($0.dropFirst("ACTIVE||".count)) }
+        let results = lines.compactMap { parse($0) }
+        guard var result = results.first(where: \.isPlaying) ?? results.first else { return .success(nil) }
+        result.isActiveTab = result.tab.tabID == activeTab
+        return .success(result)
     }
 
     static func control(_ action: String, value: Double = 0, in tab: ChromeTab) {

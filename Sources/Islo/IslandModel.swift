@@ -27,6 +27,24 @@ enum IslandTab: String, CaseIterable {
     }
 }
 
+/// Things the collapsed island can show beside the notch; each can be turned off in settings.
+enum Indicator: String, CaseIterable {
+    case music, timer, volume, charging, layout, capsLock, output, color
+
+    var title: String {
+        switch self {
+        case .music: "Музыка"
+        case .timer: "Таймер"
+        case .volume: "Громкость"
+        case .charging: "Зарядка"
+        case .layout: "Раскладка клавиатуры"
+        case .capsLock: "Caps Lock"
+        case .output: "Наушники и колонки"
+        case .color: "Цвет из пипетки"
+        }
+    }
+}
+
 /// A short-lived event shown beside the notch.
 enum IslandEvent: Equatable {
     case volume(Float, muted: Bool)
@@ -36,6 +54,18 @@ enum IslandEvent: Equatable {
     case output(name: String, isHeadphones: Bool)
     case timerDone
     case colorCopied(hex: String)
+
+    var indicator: Indicator {
+        switch self {
+        case .volume: .volume
+        case .charging: .charging
+        case .inputSource: .layout
+        case .capsLock: .capsLock
+        case .output: .output
+        case .timerDone: .timer
+        case .colorCopied: .color
+        }
+    }
 
     /// How far the island grows to each side of the notch for this event.
     var wingWidth: CGFloat {
@@ -71,6 +101,10 @@ final class IslandModel: ObservableObject {
             if hiddenTabs.contains(tab) { tab = .home }
         }
     }
+    /// Indicators the user turned off in settings.
+    @Published var hiddenIndicators = Set((UserDefaults.standard.stringArray(forKey: "hiddenIndicators") ?? []).compactMap(Indicator.init)) {
+        didSet { UserDefaults.standard.set(hiddenIndicators.map(\.rawValue), forKey: "hiddenIndicators") }
+    }
     /// macOS reports the menu bar height, not the camera notch itself, and the two differ with
     /// scaled resolutions. This lets the collapsed island be lined up with the real notch.
     static let heightAdjustments: [CGFloat] = [-4, -2, -1, 0, 1, 2, 3, 4, 6]
@@ -96,6 +130,10 @@ final class IslandModel: ObservableObject {
         // Re-publish so the island resizes when music or the timer starts or stops.
         player.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &observers)
         timer.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &observers)
+        // Switching apps can bring the music's source to the front, or take it away.
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &observers)
         timer.onFinish = { [weak self] in self?.show(.timerDone) }
         actions.onColorPicked = { [weak self] hex in self?.show(.colorCopied(hex: hex)) }
     }
@@ -105,10 +143,17 @@ final class IslandModel: ObservableObject {
         case event(IslandEvent), timer, music, eyes, none
     }
 
+    func shows(_ indicator: Indicator) -> Bool { !hiddenIndicators.contains(indicator) }
+
+    func setIndicator(_ indicator: Indicator, visible: Bool) {
+        if visible { hiddenIndicators.remove(indicator) } else { hiddenIndicators.insert(indicator) }
+    }
+
     var compact: Compact {
         if let event { return .event(event) }
-        if timer.isActive { return .timer }
-        if player.track?.isPlaying == true { return .music }
+        if timer.isActive && shows(.timer) { return .timer }
+        // No need to show the music while its app or tab is the one you're looking at.
+        if player.track?.isPlaying == true && shows(.music) && !player.isSourceInFront { return .music }
         if showsEyes { return .eyes }
         return .none
     }
@@ -169,7 +214,7 @@ final class IslandModel: ObservableObject {
 
     /// Shows an event beside the notch for a moment.
     func show(_ newEvent: IslandEvent) {
-        guard !isExpanded else { return }
+        guard !isExpanded, shows(newEvent.indicator) else { return }
         event = newEvent
         eventWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.event = nil }

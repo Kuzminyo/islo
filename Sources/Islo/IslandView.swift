@@ -287,7 +287,16 @@ private struct ExpandedView: View {
                         .foregroundStyle(.white.opacity(0.5))
                 }
                 Menu {
-                    Toggle("Глазки 👀", isOn: $model.showsEyes)
+                    Menu("Показывать у выреза") {
+                        ForEach(Indicator.allCases, id: \.self) { indicator in
+                            Toggle(indicator.title, isOn: Binding(
+                                get: { model.shows(indicator) },
+                                set: { model.setIndicator(indicator, visible: $0) }
+                            ))
+                        }
+                        Divider()
+                        Toggle("Глазки 👀", isOn: $model.showsEyes)
+                    }
                     Picker("Высота у выреза", selection: $model.heightAdjust) {
                         ForEach(IslandModel.heightAdjustments, id: \.self) { value in
                             Text(value == 0 ? "Как вырез (по macOS)" : value < 0 ? "Короче на \(Int(-value)) пт" : "Длиннее на \(Int(value)) пт")
