@@ -15,6 +15,7 @@ final class IslandPanel: NSPanel {
 
     private let model: IslandModel
     private var mouseMonitors: [Any] = []
+    private var hoverTimer: Timer?
     private var dragChangeCount = NSPasteboard(name: .drag).changeCount
 
     init(model: IslandModel) {
@@ -42,7 +43,13 @@ final class IslandPanel: NSPanel {
         reposition()
         model.onCollapse = { [weak self] in self?.giveBackKeyboard() }
 
-        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        // macOS doesn't report pointer movement to other apps over a full-screen app, so the
+        // pointer position is checked on a timer instead; the event monitors only follow drags.
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.updateHover() }
+        RunLoop.main.add(timer, forMode: .common)
+        hoverTimer = timer
+
+        let events: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
         let track: (NSEvent) -> Void = { [weak self] event in self?.handle(event) }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: track) {
             mouseMonitors.append(global)
