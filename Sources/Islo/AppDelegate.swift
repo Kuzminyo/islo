@@ -14,8 +14,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = IslandPanel(model: model)
 
         volumeWatcher = VolumeWatcher { [weak self] volume, muted in
+            self?.model.volume = muted ? 0 : volume
             self?.model.show(.volume(volume, muted: muted))
         }
+        model.volume = volumeWatcher?.volume ?? 1
+        model.onSetVolume = { [weak self] value in self?.volumeWatcher?.setVolume(value) }
         volumeWatcher?.onDeviceChange = { [weak self] name, isHeadphones in
             self?.model.show(.output(name: name, isHeadphones: isHeadphones))
         }

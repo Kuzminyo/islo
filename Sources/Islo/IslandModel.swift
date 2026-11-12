@@ -79,7 +79,7 @@ enum IslandEvent: Equatable {
 }
 
 final class IslandModel: ObservableObject {
-    static let expandedSize = CGSize(width: 620, height: 140)
+    static let expandedSize = CGSize(width: 540, height: 140)
     /// How far the island grows to each side of the notch when it shows something.
     static let musicWingWidth: CGFloat = 44
     static let timerWingWidth: CGFloat = 64
@@ -111,6 +111,15 @@ final class IslandModel: ObservableObject {
     @Published var heightAdjust = UserDefaults.standard.object(forKey: "heightAdjust") as? CGFloat ?? 0 {
         didSet { UserDefaults.standard.set(heightAdjust, forKey: "heightAdjust") }
     }
+    /// System output volume, shown and changed from the player.
+    @Published var volume: Float = 1
+    var onSetVolume: ((Float) -> Void)?
+
+    func setVolume(_ value: Float) {
+        volume = value
+        onSetVolume?(value)
+    }
+
     /// Called when the island closes, so the panel can hand keyboard focus back.
     var onCollapse: (() -> Void)?
 

@@ -282,7 +282,7 @@ private struct ExpandedView: View {
             topBar
             Group {
                 switch model.tab {
-                case .home: HomeTab(player: player)
+                case .home: HomeTab(player: player, model: model)
                 case .tasks: TasksTab(tasks: model.tasks)
                 case .tools: ToolsTab(timer: model.timer, mirror: model.mirror)
                 case .actions: ActionsTab(actions: model.actions)
@@ -316,7 +316,7 @@ private struct ExpandedView: View {
     /// Tabs on the left of the notch, settings on the right.
     private var topBar: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 ForEach(model.visibleTabs, id: \.self) { tab in
                     Button {
                         withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { model.tab = tab }
@@ -324,7 +324,7 @@ private struct ExpandedView: View {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(model.tab == tab ? .white : .white.opacity(0.45))
-                            .frame(width: 30, height: 22)
+                            .frame(width: 27, height: 22)
                             .background {
                                 if model.tab == tab {
                                     Capsule()
@@ -339,7 +339,7 @@ private struct ExpandedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 16)
+            .padding(.leading, 14)
             .frame(maxWidth: .infinity)
 
             Color.clear.frame(width: model.notch.width)
@@ -393,7 +393,7 @@ private struct ExpandedView: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
             }
-            .padding(.trailing, 16)
+            .padding(.trailing, 14)
             .frame(maxWidth: .infinity)
         }
         .frame(height: max(model.notch.height, 30))
@@ -403,6 +403,7 @@ private struct ExpandedView: View {
 /// The player across the whole island.
 private struct HomeTab: View {
     @ObservedObject var player: NowPlaying
+    @ObservedObject var model: IslandModel
 
     var body: some View {
         Group {
@@ -419,7 +420,7 @@ private struct HomeTab: View {
     }
 
     private func nowPlaying(_ track: Track) -> some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             Button { player.openPlayer() } label: {
                 Artwork(image: player.artwork, fallback: track.player.icon, size: 88, radius: 21)
                     .shadow(color: player.accent.opacity(0.35), radius: 16, y: 4)
@@ -448,12 +449,16 @@ private struct HomeTab: View {
                     .lineLimit(1)
                 Progress(track: track, tint: player.accent) { player.seek(to: $0) }
                     .padding(.top, 8)
-                HStack(spacing: 44) {
-                    control("backward.fill", size: 18) { player.previous() }
-                    control(track.isPlaying ? "pause.fill" : "play.fill", size: 28) { player.playPause() }
-                    control("forward.fill", size: 18) { player.next() }
+                HStack(spacing: 0) {
+                    HStack(spacing: 18) {
+                        control("backward.fill", size: 18) { player.previous() }
+                        control(track.isPlaying ? "pause.fill" : "play.fill", size: 28) { player.playPause() }
+                        control("forward.fill", size: 18) { player.next() }
+                    }
+                    Spacer(minLength: 12)
+                    VolumeSlider(value: model.volume, tint: player.accent) { model.setVolume($0) }
+                        .frame(width: 120)
                 }
-                .frame(maxWidth: .infinity)
                 .padding(.top, 4)
             }
             .animation(.smooth(duration: 0.3), value: track.title)
@@ -594,6 +599,49 @@ private struct ShelfItem: View {
             Button("Убрать с полки") { shelf.remove(url) }
         }
         .help(url.path)
+    }
+}
+
+/// System volume: speaker icon and a bar to click or drag, in the artwork's color.
+private struct VolumeSlider: View {
+    let value: Float
+    var tint: Color = .white
+    let onChange: (Float) -> Void
+
+    @State private var dragValue: Float?
+    @State private var isHovered = false
+
+    var body: some View {
+        let shown = dragValue ?? value
+        let isActive = isHovered || dragValue != nil
+        HStack(spacing: 7) {
+            Image(systemName: shown == 0 ? "speaker.slash.fill" : shown < 0.34 ? "speaker.wave.1.fill" : shown < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.7))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 18)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.2))
+                    Capsule().fill(tint).frame(width: proxy.size.width * CGFloat(shown))
+                }
+                .frame(height: isActive ? 7 : 4)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { drag in
+                            let new = Float(min(max(drag.location.x / proxy.size.width, 0), 1))
+                            dragValue = new
+                            onChange(new)
+                        }
+                        .onEnded { _ in dragValue = nil }
+                )
+            }
+            .frame(height: 14)
+            .onHover { isHovered = $0 }
+            .animation(.snappy(duration: 0.15), value: isActive)
+        }
     }
 }
 
@@ -1027,6 +1075,7 @@ private struct ActionsTab: View {
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)

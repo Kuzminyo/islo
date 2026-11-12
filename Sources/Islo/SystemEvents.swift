@@ -69,6 +69,24 @@ final class VolumeWatcher {
         onDeviceChange?((name?.takeRetainedValue() as String?) ?? "Звук", isHeadphones)
     }
 
+    /// Current volume, 0 when muted.
+    var volume: Float {
+        var volume = Float32(0)
+        var muted = UInt32(0)
+        var size = UInt32(MemoryLayout<Float32>.size)
+        AudioObjectGetPropertyData(device, &Self.volumeAddress, 0, nil, &size, &volume)
+        size = UInt32(MemoryLayout<UInt32>.size)
+        AudioObjectGetPropertyData(device, &Self.muteAddress, 0, nil, &size, &muted)
+        return muted != 0 ? 0 : volume
+    }
+
+    func setVolume(_ value: Float) {
+        var volume = Float32(max(0, min(1, value)))
+        AudioObjectSetPropertyData(device, &Self.volumeAddress, 0, nil, UInt32(MemoryLayout<Float32>.size), &volume)
+        var muted = UInt32(value <= 0 ? 1 : 0)
+        AudioObjectSetPropertyData(device, &Self.muteAddress, 0, nil, UInt32(MemoryLayout<UInt32>.size), &muted)
+    }
+
     private func report() {
         var volume = Float32(0)
         var muted = UInt32(0)
