@@ -8,11 +8,11 @@ struct IslandView: View {
     @ObservedObject var shelf: Shelf
 
     private var size: CGSize { model.contentSize }
-    // The top flares into the screen edge. Open, the flare's base runs far along the edge and
-    // only rises a little, so the island pours out of the top like a drop instead of meeting it
-    // at a sharp point.
-    private var earWidth: CGFloat { model.isExpanded ? 44 : 8 }
-    private var earHeight: CGFloat { model.isExpanded ? 18 : 8 }
+    // Closed, small flares at the very top blend the island into the notch. Open, the sides curve
+    // outward where they meet the bottom of the menu bar, so the island pours out of it like a drop.
+    private var earWidth: CGFloat { model.isExpanded ? 22 : 8 }
+    private var earHeight: CGFloat { model.isExpanded ? 22 : 8 }
+    private var flareTop: CGFloat { model.isExpanded ? model.notch.height : 0 }
     private var radius: CGFloat { model.isExpanded ? 34 : min(size.height * 0.42, 15) }
 
     /// Nothing to show: draw nothing, so only the real notch is visible. A black shape the size
@@ -20,7 +20,7 @@ struct IslandView: View {
     private var isHidden: Bool { !model.isExpanded && model.compact == .none }
 
     var body: some View {
-        let shape = IslandShape(radius: radius, earWidth: earWidth, earHeight: earHeight)
+        let shape = IslandShape(radius: radius, earWidth: earWidth, earHeight: earHeight, flareTop: flareTop)
         content
             .frame(width: size.width, height: size.height, alignment: .top)
             .padding(.horizontal, earWidth)
@@ -90,10 +90,18 @@ struct IslandShape: Shape {
     /// How far the flare runs along the top edge, and how far down the side it starts.
     var earWidth: CGFloat
     var earHeight: CGFloat
+    /// Where the flares start: 0 for the screen edge, or the bottom of the menu bar. Above it the
+    /// shape runs at full width, so it blends into a dark menu bar.
+    var flareTop: CGFloat
 
-    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(radius, AnimatablePair(earWidth, earHeight)) }
-        set { radius = newValue.first; earWidth = newValue.second.first; earHeight = newValue.second.second }
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>> {
+        get { AnimatablePair(radius, AnimatablePair(earWidth, AnimatablePair(earHeight, flareTop))) }
+        set {
+            radius = newValue.first
+            earWidth = newValue.second.first
+            earHeight = newValue.second.second.first
+            flareTop = newValue.second.second.second
+        }
     }
 
     func path(in rect: CGRect) -> Path {
@@ -103,13 +111,15 @@ struct IslandShape: Shape {
         let left = rect.minX + earWidth
         let right = rect.maxX - earWidth
         let r = min(radius, (right - left) / (2 * spread), rect.height / (2 * spread))
+        let flareY = rect.minY + flareTop
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        // Flare: leaves the top edge gently and bends down into the side.
+        path.addLine(to: CGPoint(x: rect.minX, y: flareY))
+        // Flare: a round fillet from the horizontal edge down into the side.
         path.addCurve(
-            to: CGPoint(x: left, y: rect.minY + earHeight),
-            control1: CGPoint(x: rect.minX + earWidth * 0.55, y: rect.minY),
-            control2: CGPoint(x: left, y: rect.minY + earHeight * 0.3)
+            to: CGPoint(x: left, y: flareY + earHeight),
+            control1: CGPoint(x: rect.minX + earWidth * 0.55, y: flareY),
+            control2: CGPoint(x: left, y: flareY + earHeight * 0.45)
         )
         path.addLine(to: CGPoint(x: left, y: rect.maxY - r * spread))
         path.addCurve(
@@ -123,12 +133,13 @@ struct IslandShape: Shape {
             control1: CGPoint(x: right - r * 0.42, y: rect.maxY),
             control2: CGPoint(x: right, y: rect.maxY - r * 0.42)
         )
-        path.addLine(to: CGPoint(x: right, y: rect.minY + earHeight))
+        path.addLine(to: CGPoint(x: right, y: flareY + earHeight))
         path.addCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY),
-            control1: CGPoint(x: right, y: rect.minY + earHeight * 0.3),
-            control2: CGPoint(x: rect.maxX - earWidth * 0.55, y: rect.minY)
+            to: CGPoint(x: rect.maxX, y: flareY),
+            control1: CGPoint(x: right, y: flareY + earHeight * 0.45),
+            control2: CGPoint(x: rect.maxX - earWidth * 0.55, y: flareY)
         )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
         path.closeSubpath()
         return path
     }
