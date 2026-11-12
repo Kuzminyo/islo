@@ -8,16 +8,18 @@ struct IslandView: View {
     @ObservedObject var shelf: Shelf
 
     private var size: CGSize { model.contentSize }
-    // Wide flares when open, so the island seems to drip out of the screen edge like a drop.
-    private var ear: CGFloat { model.isExpanded ? 24 : 8 }
-    private var radius: CGFloat { model.isExpanded ? 36 : min(size.height * 0.42, 15) }
+    // Closed, small flares blend the island into the notch. Open, it hangs from the top edge
+    // like a card with rounded corners all around.
+    private var ear: CGFloat { model.isExpanded ? 0 : 8 }
+    private var topRadius: CGFloat { model.isExpanded ? 22 : 0 }
+    private var radius: CGFloat { model.isExpanded ? 34 : min(size.height * 0.42, 15) }
 
     /// Nothing to show: draw nothing, so only the real notch is visible. A black shape the size
     /// of the notch never lines up exactly with the hardware and leaves a thin outline around it.
     private var isHidden: Bool { !model.isExpanded && model.compact == .none }
 
     var body: some View {
-        let shape = IslandShape(radius: radius, ear: ear)
+        let shape = IslandShape(radius: radius, ear: ear, topRadius: topRadius)
         content
             .frame(width: size.width, height: size.height, alignment: .top)
             .padding(.horizontal, ear)
@@ -81,49 +83,75 @@ struct IslandView: View {
     }
 }
 
-/// The island outline: square top that flares into the screen edge ("ears"), rounded bottom.
+/// The island outline. Closed, its top flares into the screen edge ("ears") to blend with the
+/// notch; open, the top corners are rounded like the bottom ones.
 struct IslandShape: Shape {
     var radius: CGFloat
     var ear: CGFloat
+    var topRadius: CGFloat
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(radius, ear) }
-        set { radius = newValue.first; ear = newValue.second }
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(radius, AnimatablePair(ear, topRadius)) }
+        set { radius = newValue.first; ear = newValue.second.first; topRadius = newValue.second.second }
     }
 
     func path(in rect: CGRect) -> Path {
         // Corners are spread over 1.3× the radius with handles near the corner, which reads as a
         // smooth, continuous curve rather than a quarter circle glued to a straight edge.
         let spread: CGFloat = 1.3
-        let r = min(radius, (rect.width - ear * 2) / (2 * spread), rect.height / (2 * spread))
         let left = rect.minX + ear
         let right = rect.maxX - ear
+        let r = min(radius, (right - left) / (2 * spread), rect.height / (2 * spread))
+        let top = min(topRadius, (right - left) / (2 * spread), rect.height / 4)
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        // Ear: the top edge bends down into the side.
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+
+        // Top right: rounded corner, or a flare into the screen edge.
+        if top > 0.5 {
+            path.addLine(to: CGPoint(x: right - top * spread, y: rect.minY))
+            path.addCurve(
+                to: CGPoint(x: right, y: rect.minY + top * spread),
+                control1: CGPoint(x: right - top * 0.42, y: rect.minY),
+                control2: CGPoint(x: right, y: rect.minY + top * 0.42)
+            )
+        } else {
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addCurve(
+                to: CGPoint(x: right, y: rect.minY + ear),
+                control1: CGPoint(x: rect.maxX - ear * 0.62, y: rect.minY),
+                control2: CGPoint(x: right, y: rect.minY + ear * 0.38)
+            )
+        }
+
+        path.addLine(to: CGPoint(x: right, y: rect.maxY - r * spread))
         path.addCurve(
-            to: CGPoint(x: left, y: rect.minY + ear),
-            control1: CGPoint(x: rect.minX + ear * 0.62, y: rect.minY),
-            control2: CGPoint(x: left, y: rect.minY + ear * 0.38)
+            to: CGPoint(x: right - r * spread, y: rect.maxY),
+            control1: CGPoint(x: right, y: rect.maxY - r * 0.42),
+            control2: CGPoint(x: right - r * 0.42, y: rect.maxY)
         )
-        path.addLine(to: CGPoint(x: left, y: rect.maxY - r * spread))
+        path.addLine(to: CGPoint(x: left + r * spread, y: rect.maxY))
         path.addCurve(
-            to: CGPoint(x: left + r * spread, y: rect.maxY),
-            control1: CGPoint(x: left, y: rect.maxY - r * 0.42),
-            control2: CGPoint(x: left + r * 0.42, y: rect.maxY)
+            to: CGPoint(x: left, y: rect.maxY - r * spread),
+            control1: CGPoint(x: left + r * 0.42, y: rect.maxY),
+            control2: CGPoint(x: left, y: rect.maxY - r * 0.42)
         )
-        path.addLine(to: CGPoint(x: right - r * spread, y: rect.maxY))
-        path.addCurve(
-            to: CGPoint(x: right, y: rect.maxY - r * spread),
-            control1: CGPoint(x: right - r * 0.42, y: rect.maxY),
-            control2: CGPoint(x: right, y: rect.maxY - r * 0.42)
-        )
-        path.addLine(to: CGPoint(x: right, y: rect.minY + ear))
-        path.addCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY),
-            control1: CGPoint(x: right, y: rect.minY + ear * 0.38),
-            control2: CGPoint(x: rect.maxX - ear * 0.62, y: rect.minY)
-        )
+
+        // Top left.
+        if top > 0.5 {
+            path.addLine(to: CGPoint(x: left, y: rect.minY + top * spread))
+            path.addCurve(
+                to: CGPoint(x: left + top * spread, y: rect.minY),
+                control1: CGPoint(x: left, y: rect.minY + top * 0.42),
+                control2: CGPoint(x: left + top * 0.42, y: rect.minY)
+            )
+        } else {
+            path.addLine(to: CGPoint(x: left, y: rect.minY + ear))
+            path.addCurve(
+                to: CGPoint(x: rect.minX, y: rect.minY),
+                control1: CGPoint(x: left, y: rect.minY + ear * 0.38),
+                control2: CGPoint(x: rect.minX + ear * 0.62, y: rect.minY)
+            )
+        }
         path.closeSubpath()
         return path
     }
@@ -325,7 +353,7 @@ private struct ExpandedView: View {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(model.tab == tab ? .white : .white.opacity(0.45))
-                            .frame(width: 24, height: 22)
+                            .frame(width: 21, height: 22)
                             .background {
                                 if model.tab == tab {
                                     Capsule()
@@ -340,7 +368,7 @@ private struct ExpandedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 6)
+            .padding(.leading, 4)
             .frame(maxWidth: .infinity)
 
             Color.clear.frame(width: model.notch.width)
@@ -444,22 +472,23 @@ private struct HomeTab: View {
                         .padding(.vertical, 2)
                         .background(.white.opacity(0.08), in: Capsule())
                 }
-                Text(track.artist)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
+                HStack(spacing: 10) {
+                    Text(track.artist)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    VolumeSlider(value: model.volume, tint: player.accent) { model.setVolume($0) }
+                        .frame(width: 86)
+                }
                 Progress(track: track, tint: player.accent) { player.seek(to: $0) }
                     .padding(.top, 8)
-                HStack(spacing: 0) {
-                    VolumeSlider(value: model.volume, tint: player.accent) { model.setVolume($0) }
-                        .frame(width: 96)
-                    Spacer(minLength: 8)
-                    HStack(spacing: 6) {
-                        control("backward.fill", size: 17) { player.previous() }
-                        control(track.isPlaying ? "pause.fill" : "play.fill", size: 26) { player.playPause() }
-                        control("forward.fill", size: 17) { player.next() }
-                    }
+                HStack(spacing: 14) {
+                    control("backward.fill", size: 17) { player.previous() }
+                    control(track.isPlaying ? "pause.fill" : "play.fill", size: 26) { player.playPause() }
+                    control("forward.fill", size: 17) { player.next() }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.top, 4)
             }
             .animation(.smooth(duration: 0.3), value: track.title)
@@ -1068,18 +1097,20 @@ private struct ActionsTab: View {
 
     private func tile(_ title: String, symbol: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 30, height: 30)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 28, height: 28)
                     .background(isOn ? Color.orange : .white.opacity(0.08), in: Circle())
+                // Two short lines rather than a cut-off label on the narrow island.
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
             .frame(height: 46)
             .background(.white.opacity(isOn ? 0.12 : 0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())

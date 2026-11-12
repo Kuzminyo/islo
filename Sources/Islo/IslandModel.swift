@@ -79,7 +79,7 @@ enum IslandEvent: Equatable {
 }
 
 final class IslandModel: ObservableObject {
-    static let expandedSize = CGSize(width: 470, height: 140)
+    static let expandedSize = CGSize(width: 420, height: 140)
     /// How far the island grows to each side of the notch when it shows something.
     static let musicWingWidth: CGFloat = 44
     static let timerWingWidth: CGFloat = 64
@@ -172,7 +172,7 @@ final class IslandModel: ObservableObject {
         let notchWidth = notch.width
         if isExpanded {
             // Room for the tabs on the left of the notch and the settings on the right.
-            return CGSize(width: max(Self.expandedSize.width, notchWidth + 262), height: notch.height + Self.expandedSize.height)
+            return CGSize(width: max(Self.expandedSize.width, notchWidth + 230), height: notch.height + Self.expandedSize.height)
         }
         let wing: CGFloat
         switch compact {
