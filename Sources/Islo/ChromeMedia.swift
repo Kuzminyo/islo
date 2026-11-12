@@ -28,6 +28,8 @@ enum ChromeMedia {
         let duration: Double
         let position: Double
         let isPlaying: Bool
+        /// The page's own volume, 0…1, if it has one.
+        var volume: Double?
         /// The tab is the selected one in Chrome's front window.
         var isActiveTab = false
     }
@@ -49,7 +51,8 @@ enum ChromeMedia {
     var d=m?m.duration:0,p=m?m.currentTime:0;\
     if(!m){var tp=document.querySelector('.playbackTimeline__timePassed span[aria-hidden]'),du=document.querySelector('.playbackTimeline__duration span[aria-hidden]');\
     var sec=function(x){return x.textContent.trim().split(':').reduce(function(a,b){return a*60+Number(b)},0)};if(tp&&du){p=sec(tp);d=sec(du)}}\
-    return JSON.stringify({t:(md&&md.title)||document.title,a:(md&&md.artist)||'',art:art,d:d,p:p,on:!!on})})()
+    var mp=document.querySelector('#movie_player');var vol=mp&&mp.getVolume?mp.getVolume()/100:(m?m.volume:-1);\
+    return JSON.stringify({t:(md&&md.title)||document.title,a:(md&&md.artist)||'',art:art,d:d,p:p,on:!!on,vol:vol})})()
     """
 
     /// Clicks the site's own play/next/previous button when it has one, otherwise drives the
@@ -63,6 +66,9 @@ enum ChromeMedia {
         else if(h.indexOf('open.spotify.com')>=0)sel=['[data-testid=control-button-playpause]','[data-testid=control-button-skip-forward]','[data-testid=control-button-skip-back]'];\
         else if(h.indexOf('music.yandex')>=0)sel=['.player-controls__btn_play','.player-controls__btn_next','.player-controls__btn_prev'];\
         var m=[].slice.call(document.querySelectorAll('video,audio')).filter(function(e){return e.duration>0})[0];\
+        if(a==='volume'){var mp=document.querySelector('#movie_player');\
+        if(mp&&mp.setVolume){mp.setVolume(Math.round(x*100));if(x>0&&mp.unMute)mp.unMute();return 'ok'}\
+        if(m){m.volume=x;m.muted=x==0;return 'ok'}return 'no'}\
         if(a==='seek'){if(m){m.currentTime=x;return 'ok'}\
         var w=document.querySelector('.playbackTimeline__progressWrapper'),du=document.querySelector('.playbackTimeline__duration span[aria-hidden]');\
         if(!w||!du)return 'no';var d=du.textContent.trim().split(':').reduce(function(s,v){return s*60+Number(v)},0);\
@@ -190,7 +196,8 @@ enum ChromeMedia {
             artworkURL: (json["art"] as? String).flatMap(URL.init(string:)),
             duration: json["d"] as? Double ?? 0,
             position: json["p"] as? Double ?? 0,
-            isPlaying: json["on"] as? Bool ?? false
+            isPlaying: json["on"] as? Bool ?? false,
+            volume: (json["vol"] as? Double).flatMap { $0 >= 0 ? $0 : nil }
         )
     }
 }

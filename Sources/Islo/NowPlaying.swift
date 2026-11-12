@@ -71,6 +71,10 @@ final class NowPlaying: ObservableObject {
     @Published private(set) var accent: Color = .white
     /// Chrome is open but won't run scripts from Islo; the island shows how to allow it.
     @Published private(set) var chromeNeedsJavaScript = false
+    /// The playing app's own volume (Spotify, Music, or the Chrome tab), 0…1.
+    @Published private(set) var appVolume: Double?
+    private var volumeChangedAt = Date.distantPast
+    private var pendingVolume: DispatchWorkItem?
 
     private let scriptQueue = DispatchQueue(label: "com.kuzminyo.islo.applescript")
     private var artworkURL: URL?
@@ -95,7 +99,10 @@ final class NowPlaying: ObservableObject {
         for player in Player.allCases where player.isRunning && player != .chrome {
             refresh(player)
         }
-        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in self?.pollChrome() }
+        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.pollChrome()
+            self?.pollAppVolume()
+        }
         RunLoop.main.add(timer, forMode: .common)
         chromeTimer = timer
     }
@@ -165,6 +172,43 @@ final class NowPlaying: ObservableObject {
         }
     }
 
+    // MARK: - App volume
+
+    /// Sets the playing app's own volume. Calls while dragging are coalesced.
+    func setAppVolume(_ value: Double) {
+        guard let track else { return }
+        appVolume = value
+        volumeChangedAt = Date()
+        pendingVolume?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if let tab = track.chromeTab {
+                self.scriptQueue.async { ChromeMedia.control("volume", value: value, in: tab) }
+            } else {
+                let name = track.player.scriptName
+                self.scriptQueue.async { Self.run("tell application \"\(name)\" to set sound volume to \(Int((value * 100).rounded()))") }
+            }
+        }
+        pendingVolume = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: work)
+    }
+
+    /// Follows volume changes made in Spotify or Music themselves.
+    private func pollAppVolume() {
+        guard let player = track?.player, player != .chrome, player.isRunning,
+              Date().timeIntervalSince(volumeChangedAt) > 1.5 else { return }
+        scriptQueue.async { [weak self] in
+            guard let text = Self.run("tell application \"\(player.scriptName)\" to get sound volume"),
+                  let percent = Double(text) else { return }
+            DispatchQueue.main.async {
+                guard let self, self.track?.player == player,
+                      Date().timeIntervalSince(self.volumeChangedAt) > 1.5 else { return }
+                let value = percent / 100
+                if self.appVolume.map({ abs($0 - value) > 0.005 }) ?? true { self.appVolume = value }
+            }
+        }
+    }
+
     // MARK: - Chrome
 
     private func pollChrome() {
@@ -198,6 +242,10 @@ final class NowPlaying: ObservableObject {
                     // Don't let a paused tab replace another player that is playing.
                     if let current = self.track, current.player != .chrome, current.isPlaying, !track.isPlaying { return }
                     self.setTrack(track)
+                    if let volume = media.volume, Date().timeIntervalSince(self.volumeChangedAt) > 1.5,
+                       self.appVolume.map({ abs($0 - volume) > 0.005 }) ?? true {
+                        self.appVolume = volume
+                    }
                 }
             }
         }
@@ -256,6 +304,7 @@ final class NowPlaying: ObservableObject {
     }
 
     private func setTrack(_ newTrack: Track?) {
+        if newTrack?.player != track?.player { appVolume = nil }
         if track != newTrack { track = newTrack }
         let url = newTrack?.artworkURL
         guard url != artworkURL else { return }

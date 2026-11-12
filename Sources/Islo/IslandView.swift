@@ -9,9 +9,9 @@ struct IslandView: View {
 
     private var size: CGSize { model.contentSize }
     // Closed, small flares at the very top blend the island into the notch. Open, the sides curve
-    // outward where they meet the bottom of the menu bar, so the island pours out of it like a drop.
-    private var earWidth: CGFloat { model.isExpanded ? 22 : 8 }
-    private var earHeight: CGFloat { model.isExpanded ? 22 : 8 }
+    // outward right where the menu bar ends, so the island pours out of it like a drop.
+    private var earWidth: CGFloat { model.isExpanded ? 14 : 8 }
+    private var earHeight: CGFloat { model.isExpanded ? 12 : 8 }
     private var flareTop: CGFloat { model.isExpanded ? model.notch.height : 0 }
     private var radius: CGFloat { model.isExpanded ? 34 : min(size.height * 0.42, 15) }
 
@@ -466,8 +466,15 @@ private struct HomeTab: View {
                         .foregroundStyle(.white.opacity(0.6))
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    VolumeSlider(value: model.volume, tint: player.accent) { model.setVolume($0) }
-                        .frame(width: 86)
+                    // The player's own volume when it reports one, otherwise the Mac's.
+                    VolumeSlider(value: player.appVolume.map(Float.init) ?? model.volume, tint: player.accent) { value in
+                        if player.appVolume != nil {
+                            player.setAppVolume(Double(value))
+                        } else {
+                            model.setVolume(value)
+                        }
+                    }
+                    .frame(width: 86)
                 }
                 Progress(track: track, tint: player.accent) { player.seek(to: $0) }
                     .padding(.top, 8)
