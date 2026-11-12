@@ -8,8 +8,8 @@ struct IslandView: View {
     @ObservedObject var shelf: Shelf
 
     private var size: CGSize { model.contentSize }
-    private var ear: CGFloat { model.isExpanded ? 12 : 6 }
-    private var radius: CGFloat { model.isExpanded ? 30 : min(size.height * 0.35, 12) }
+    private var ear: CGFloat { model.isExpanded ? 14 : 7 }
+    private var radius: CGFloat { model.isExpanded ? 34 : min(size.height * 0.42, 15) }
 
     /// Nothing to show: draw nothing, so only the real notch is visible. A black shape the size
     /// of the notch never lines up exactly with the hardware and leaves a thin outline around it.
@@ -24,9 +24,10 @@ struct IslandView: View {
             .clipShape(shape)
             .contentShape(shape)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: size)
-            .animation(.easeOut(duration: 0.2), value: model.event == nil)
-            .animation(.easeOut(duration: 0.15), value: isHidden)
+            // A little bounce when the island grows or shrinks, like the iPhone's.
+            .animation(.spring(response: 0.46, dampingFraction: 0.74), value: size)
+            .animation(.smooth(duration: 0.25), value: model.compact)
+            .animation(.smooth(duration: 0.2), value: isHidden)
             .environment(\.colorScheme, .dark)
     }
 
@@ -34,12 +35,12 @@ struct IslandView: View {
     private var content: some View {
         if model.isExpanded {
             ExpandedView(model: model, player: player, shelf: shelf)
-                .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
+                .transition(.blurFade)
         } else {
             switch model.compact {
             case .event(let event):
                 EventView(event: event, notchWidth: model.notch.width)
-                    .transition(.opacity)
+                    .transition(.blurFade)
             case .timer:
                 Wings(notchWidth: model.notch.width) {
                     Image(systemName: model.timer.isPaused ? "pause.fill" : "timer")
@@ -53,7 +54,7 @@ struct IslandView: View {
                             .foregroundStyle(.orange)
                     }
                 }
-                .transition(.opacity)
+                .transition(.blurFade)
             case .music:
                 if let track = player.track {
                     Wings(notchWidth: model.notch.width) {
@@ -61,7 +62,7 @@ struct IslandView: View {
                     } trailing: {
                         EqualizerBars(tint: player.accent)
                     }
-                    .transition(.opacity)
+                    .transition(.blurFade)
                 }
             case .eyes:
                 let wing = IslandModel.eyesWingWidth
@@ -71,7 +72,7 @@ struct IslandView: View {
                 } trailing: {
                     Eye(center: CGPoint(x: model.notch.rect.maxX + wing / 2, y: y))
                 }
-                .transition(.opacity)
+                .transition(.blurFade)
             case .none:
                 EmptyView()
             }
@@ -90,21 +91,73 @@ struct IslandShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let r = min(radius, (rect.width - ear * 2) / 2, rect.height / 2)
+        // Corners are spread over 1.3× the radius with handles near the corner, which reads as a
+        // smooth, continuous curve rather than a quarter circle glued to a straight edge.
+        let spread: CGFloat = 1.3
+        let r = min(radius, (rect.width - ear * 2) / (2 * spread), rect.height / (2 * spread))
         let left = rect.minX + ear
         let right = rect.maxX - ear
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addQuadCurve(to: CGPoint(x: left, y: rect.minY + ear), control: CGPoint(x: left, y: rect.minY))
-        path.addLine(to: CGPoint(x: left, y: rect.maxY - r))
-        path.addQuadCurve(to: CGPoint(x: left + r, y: rect.maxY), control: CGPoint(x: left, y: rect.maxY))
-        path.addLine(to: CGPoint(x: right - r, y: rect.maxY))
-        path.addQuadCurve(to: CGPoint(x: right, y: rect.maxY - r), control: CGPoint(x: right, y: rect.maxY))
+        // Ear: the top edge bends down into the side.
+        path.addCurve(
+            to: CGPoint(x: left, y: rect.minY + ear),
+            control1: CGPoint(x: rect.minX + ear * 0.62, y: rect.minY),
+            control2: CGPoint(x: left, y: rect.minY + ear * 0.38)
+        )
+        path.addLine(to: CGPoint(x: left, y: rect.maxY - r * spread))
+        path.addCurve(
+            to: CGPoint(x: left + r * spread, y: rect.maxY),
+            control1: CGPoint(x: left, y: rect.maxY - r * 0.42),
+            control2: CGPoint(x: left + r * 0.42, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: right - r * spread, y: rect.maxY))
+        path.addCurve(
+            to: CGPoint(x: right, y: rect.maxY - r * spread),
+            control1: CGPoint(x: right - r * 0.42, y: rect.maxY),
+            control2: CGPoint(x: right, y: rect.maxY - r * 0.42)
+        )
         path.addLine(to: CGPoint(x: right, y: rect.minY + ear))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY), control: CGPoint(x: right, y: rect.minY))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY),
+            control1: CGPoint(x: right, y: rect.minY + ear * 0.38),
+            control2: CGPoint(x: rect.maxX - ear * 0.62, y: rect.minY)
+        )
         path.closeSubpath()
         return path
     }
+}
+
+/// Content fades in from a soft blur, the way the island's own content appears on iPhone.
+private struct BlurFade: ViewModifier {
+    let amount: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: amount * 10)
+            .opacity(1 - amount)
+            .scaleEffect(1 - amount * 0.05, anchor: .top)
+    }
+}
+
+extension AnyTransition {
+    static var blurFade: AnyTransition {
+        .modifier(active: BlurFade(amount: 1), identity: BlurFade(amount: 0))
+    }
+}
+
+/// Buttons sink a little while pressed.
+struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == PressableStyle {
+    static var pressable: PressableStyle { PressableStyle() }
 }
 
 /// Places views on the left and right of the notch.
@@ -222,6 +275,7 @@ private struct ExpandedView: View {
     @ObservedObject var player: NowPlaying
     @ObservedObject var shelf: Shelf
     @State private var isDropTargeted = false
+    @Namespace private var tabHighlight
 
     var body: some View {
         VStack(spacing: 0) {
@@ -235,6 +289,9 @@ private struct ExpandedView: View {
                 case .shelf: ShelfTab(shelf: shelf, isDropTargeted: isDropTargeted)
                 }
             }
+            .id(model.tab)
+            .transition(.blurFade)
+            .animation(.smooth(duration: 0.28), value: model.tab)
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 16)
@@ -261,15 +318,23 @@ private struct ExpandedView: View {
         HStack(spacing: 0) {
             HStack(spacing: 4) {
                 ForEach(model.visibleTabs, id: \.self) { tab in
-                    Button { model.tab = tab } label: {
+                    Button {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { model.tab = tab }
+                    } label: {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(model.tab == tab ? .white : .white.opacity(0.45))
                             .frame(width: 30, height: 22)
-                            .background(model.tab == tab ? .white.opacity(0.16) : .clear, in: Capsule())
+                            .background {
+                                if model.tab == tab {
+                                    Capsule()
+                                        .fill(.white.opacity(0.16))
+                                        .matchedGeometryEffect(id: "tab", in: tabHighlight)
+                                }
+                            }
                             .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                     .help(tab.title)
                 }
                 Spacer(minLength: 0)
@@ -335,83 +400,83 @@ private struct ExpandedView: View {
     }
 }
 
-/// Player on the left, the week and battery on the right.
+/// The player across the whole island.
 private struct HomeTab: View {
     @ObservedObject var player: NowPlaying
 
     var body: some View {
-        HStack(spacing: 18) {
-            Group {
-                if let track = player.track {
-                    nowPlaying(track)
-                } else {
-                    nothingPlaying
-                }
+        Group {
+            if let track = player.track {
+                nowPlaying(track)
+                    .transition(.blurFade)
+            } else {
+                nothingPlaying
+                    .transition(.blurFade)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Rectangle()
-                .fill(.white.opacity(0.12))
-                .frame(width: 1)
-                .padding(.vertical, 6)
-
-            WeekView()
-                .frame(width: 210)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.smooth(duration: 0.3), value: player.track == nil)
     }
 
     private func nowPlaying(_ track: Track) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 20) {
             Button { player.openPlayer() } label: {
-                Artwork(image: player.artwork, fallback: track.player.icon, size: 78, radius: 16)
+                Artwork(image: player.artwork, fallback: track.player.icon, size: 100, radius: 24)
+                    .shadow(color: player.accent.opacity(0.35), radius: 16, y: 4)
+                    .id(track.title)
+                    .transition(.blurFade)
             }
-            .buttonStyle(.plain)
-            .help("Открыть \(track.player.scriptName)")
+            .buttonStyle(.pressable)
+            .help("Открыть \(track.player.displayName)")
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(track.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(track.title)
+                        .font(.system(size: 17, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(track.player.displayName)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(.white.opacity(0.08), in: Capsule())
+                }
                 Text(track.artist)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
                 Progress(track: track, tint: player.accent) { player.seek(to: $0) }
-                    .padding(.top, 3)
-                HStack(spacing: 22) {
-                    control("backward.fill", size: 15) { player.previous() }
-                    control(track.isPlaying ? "pause.fill" : "play.fill", size: 21) { player.playPause() }
-                    control("forward.fill", size: 15) { player.next() }
+                    .padding(.top, 8)
+                HStack(spacing: 44) {
+                    control("backward.fill", size: 18) { player.previous() }
+                    control(track.isPlaying ? "pause.fill" : "play.fill", size: 28) { player.playPause() }
+                    control("forward.fill", size: 18) { player.next() }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 2)
+                .padding(.top, 4)
             }
+            .animation(.smooth(duration: 0.3), value: track.title)
         }
     }
 
     private var nothingPlaying: some View {
-        HStack(spacing: 14) {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.white.opacity(0.05))
-                .frame(width: 78, height: 78)
-                .overlay {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 26))
-                        .foregroundStyle(.white.opacity(0.35))
-                }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Ничего не играет")
-                    .font(.system(size: 14, weight: .semibold))
-                if player.chromeNeedsJavaScript {
-                    Text("Чтобы видеть музыку из Chrome, включите в нём: Вид → Разработчик → «Разрешить JavaScript из Apple Events»")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("Включите музыку в Spotify, Музыке или на сайте в Chrome")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
+        VStack(spacing: 8) {
+            Image(systemName: "music.note")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(.white.opacity(0.4))
+            Text("Ничего не играет")
+                .font(.system(size: 15, weight: .semibold))
+            if player.chromeNeedsJavaScript {
+                Text("Чтобы видеть музыку из Chrome, включите в нём: Вид → Разработчик → «Разрешить JavaScript из Apple Events»")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Включите музыку в Spotify, Музыке или на сайте в Chrome")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
             }
         }
     }
@@ -421,55 +486,10 @@ private struct HomeTab: View {
             Image(systemName: symbol)
                 .font(.system(size: size))
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 32, height: 26)
+                .frame(width: 44, height: 36)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Today's date, the current week with today highlighted, and the battery.
-private struct WeekView: View {
-    var body: some View {
-        TimelineView(.everyMinute) { context in
-            let today = context.date
-            let calendar = Calendar.current
-            let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
-            let days = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart) }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(today, format: .dateTime.weekday(.wide).day().month(.wide))
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    Text(today, format: .dateTime.hour().minute())
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-                HStack(spacing: 0) {
-                    ForEach(days, id: \.self) { day in
-                        let isToday = calendar.isDate(day, inSameDayAs: today)
-                        VStack(spacing: 4) {
-                            Text(day, format: .dateTime.weekday(.narrow))
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.45))
-                            Text(day, format: .dateTime.day())
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .frame(width: 26, height: 26)
-                                .background(isToday ? Color.accentColor : .clear, in: Circle())
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-                if let power = PowerWatcher.read() {
-                    Label("\(power.level)%\(power.isCharging ? " · заряжается" : "")",
-                          systemImage: power.isCharging ? "bolt.fill" : "battery.75percent")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(power.isCharging ? .green : .white.opacity(0.6))
-                }
-            }
-        }
+        .buttonStyle(.pressable)
     }
 }
 
@@ -532,7 +552,7 @@ private struct ShelfTab: View {
                 .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }
 
@@ -561,7 +581,7 @@ private struct ShelfItem: View {
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.8))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
             }
         }
         .onHover { isHovered = $0 }
@@ -788,7 +808,7 @@ private struct TimerPanel: View {
                                 .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressable)
                     }
                 }
             }
@@ -804,7 +824,7 @@ private struct TimerPanel: View {
                 .background(.white.opacity(0.08), in: Capsule())
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }
 
@@ -834,7 +854,7 @@ private struct MirrorPanel: View {
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .help(mirror.isOn ? "Выключить камеру" : "Включить камеру")
         .onDisappear { mirror.stop() }
     }
@@ -905,7 +925,7 @@ private struct TasksTab: View {
                         .foregroundStyle(.white.opacity(0.5))
                     if done > 0 {
                         Button("Убрать выполненные") { withAnimation { tasks.removeDone() } }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pressable)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color.accentColor)
                     }
@@ -953,7 +973,7 @@ private struct TaskRow: View {
                     .foregroundStyle(item.isDone ? Color.green : .white.opacity(0.5))
                     .contentTransition(.symbolEffect(.replace))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
 
             Text(item.title)
                 .font(.system(size: 13))
@@ -970,7 +990,7 @@ private struct TaskRow: View {
                         .frame(width: 20, height: 20)
                         .background(.white.opacity(0.1), in: Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .help("Удалить")
             }
         }
@@ -1014,6 +1034,6 @@ private struct ActionsTab: View {
             .background(.white.opacity(isOn ? 0.12 : 0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }

@@ -16,6 +16,15 @@ enum Player: String, CaseIterable {
 
     /// Posted by the player whenever the track or play state changes. Chrome posts nothing
     /// and is polled instead.
+    /// Name shown in the island.
+    var displayName: String {
+        switch self {
+        case .spotify: "Spotify"
+        case .music: "Музыка"
+        case .chrome: "Chrome"
+        }
+    }
+
     var notification: Notification.Name? {
         switch self {
         case .spotify: Notification.Name("com.spotify.client.PlaybackStateChanged")
