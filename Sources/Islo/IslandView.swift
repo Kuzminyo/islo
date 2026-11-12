@@ -421,7 +421,7 @@ private struct HomeTab: View {
     private func nowPlaying(_ track: Track) -> some View {
         HStack(spacing: 20) {
             Button { player.openPlayer() } label: {
-                Artwork(image: player.artwork, fallback: track.player.icon, size: 100, radius: 24)
+                Artwork(image: player.artwork, fallback: track.player.icon, size: 88, radius: 21)
                     .shadow(color: player.accent.opacity(0.35), radius: 16, y: 4)
                     .id(track.title)
                     .transition(.blurFade)
