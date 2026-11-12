@@ -8,11 +8,11 @@ struct IslandView: View {
     @ObservedObject var shelf: Shelf
 
     private var size: CGSize { model.contentSize }
-    // Closed, small flares at the very top blend the island into the notch. Open, the sides curve
-    // outward right where the menu bar ends, so the island pours out of it like a drop.
+    // The sides curve outward right at the top edge of the display, so the island pours out of
+    // it like a drop; a little wider when open.
     private var earWidth: CGFloat { model.isExpanded ? 14 : 8 }
     private var earHeight: CGFloat { model.isExpanded ? 12 : 8 }
-    private var flareTop: CGFloat { model.isExpanded ? model.notch.height : 0 }
+    private var flareTop: CGFloat { 0 }
     private var radius: CGFloat { model.isExpanded ? 34 : min(size.height * 0.42, 15) }
 
     /// Nothing to show: draw nothing, so only the real notch is visible. A black shape the size
